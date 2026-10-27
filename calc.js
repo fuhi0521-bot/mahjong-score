@@ -50,7 +50,7 @@
     },
     tobiPt: [0, 5, 10, 20],
     chipPt: [0, 1, 2, 5, 10],
-    rate: [0, 3, 5, 10, 20],
+    rate: [0, 30, 50, 100, 200],
   };
 
   function baseLabel([start, ret]) {
@@ -63,9 +63,10 @@
   }
   function tobiLabel(pt) { return pt ? `${pt}pt` : 'なし'; }
   function chipLabel(pt) { return pt ? `1枚${pt}pt` : 'なし'; }
-  // レートは精算ptの倍率（金額は扱わない）
+  // レートは収支ptの倍率（金額は扱わない）。1pt＝1,000点あたりの数で、テンピン（1,000点100）なら ×100
   function rateLabel(rate) {
-    return { 0: 'なし', 3: 'テンサン ×3', 5: 'テンゴ ×5', 10: 'テンピン ×10', 20: 'テンリャンピン ×20' }[rate] || `×${rate}`;
+    // 倍率（×100 など）は画面に出さない。「その他」で入れた数字は「その他（7.5）」
+    return { 0: 'なし', 30: 'テンサン', 50: 'テンゴ', 100: 'テンピン', 200: 'テンリャンピン' }[rate] || `その他（${rate}）`;
   }
 
   function ruleSummary(rule) {
@@ -140,8 +141,9 @@
       const row = rows[pid];
       row.chips = rule.chipPt ? Number((session.chips || {})[pid]) || 0 : 0;
       row.total10 = row.pt10 + Math.round(row.chips * rule.chipPt * 10);
-      // レートなしの対局は ×1 として扱う
-      row.settle10 = Math.round(row.total10 * (rule.rate || 1));
+      // レートなしの対局は ×1 として扱う。端数（×7.5 などのとき）はプラスもマイナスも同じく四捨五入する
+      const raw = row.total10 * (rule.rate || 1);
+      row.settle10 = Math.sign(raw) * Math.round(Math.abs(raw));
     }
     return session.playerIds.map((pid) => rows[pid]);
   }
@@ -247,11 +249,12 @@
     return sign + (Math.abs(pt10) / 10).toFixed(1);
   }
 
-  // 精算pt：整数になるとき（×10 など）は「.0」を付けない
-  function formatSettle(pt10) {
-    if (pt10 % 10 !== 0) return formatPt(pt10);
+  // 収支：3桁ごとにカンマを付け、単位 pt を付ける。整数になるときは「.0」を付けない（例: +25,000pt）
+  // withUnit=false は表のマスの中（幅が狭いので単位は行の説明に書く）
+  function formatSettle(pt10, withUnit = true) {
     const sign = pt10 > 0 ? '+' : pt10 < 0 ? '−' : '±';
-    return sign + Math.abs(pt10 / 10);
+    const v = Math.abs(pt10) / 10;
+    return sign + v.toLocaleString('ja-JP', { minimumFractionDigits: pt10 % 10 ? 1 : 0, maximumFractionDigits: 1 }) + (withUnit ? 'pt' : '');
   }
 
   function formatScore(score) {

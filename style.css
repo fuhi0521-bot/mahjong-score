@@ -614,7 +614,7 @@ body { overflow-x: clip; }
 html { touch-action: manipulation; }
 input, select, textarea { font-size: 16px; }
 
-/* 集計の行：「合計」「精算」は最初から表示（太さは以前と同じ 700、大きさは半荘の数字と同じ 14px）。
+/* 集計の行：「合計」「収支」は最初から表示（太さは以前と同じ 700、大きさは半荘の数字と同じ 14px）。
    内訳（半荘計・チップ・順位）はボタンで開き、太くしない */
 .score-table tfoot td { height: 30px; font-size: 13px; font-weight: 400; }
 .score-table tfoot tr.main td { height: 34px; }
@@ -626,3 +626,5 @@ input, select, textarea { font-size: 16px; }
 .score-table tfoot td.ranks { font-size: 12px; font-weight: 400; }
 .score-table:not(.open) tfoot tr.breakdown-row { display: none; }
 .foot-toggle { width: 100%; margin-top: 8px; }
+/* 今日の結果：レートの説明（見出しに入れると狭い画面で途中折り返しになるため別の行に） */
+.rate-note { margin: -4px 0 8px; font-size: 13px; }

@@ -29,13 +29,20 @@
     d = { players: [], sessions: [], myRules: [], lastRule: {}, lastMembers: {}, ...(d || {}) };
     delete d.rules; // 旧バージョンの設定形式
     if ((d.version || 1) < 2) {
-      // v1 のレートは「1ptあたりの円」。v2 は精算ptの倍率（100円 → ×10）
+      // v1 のレートは「1ptあたりの円」。v2 は倍率（100円 → ×10）。v3 でさらに ×10 する（下）
       const conv = (r) => { if (r && r.rate) r.rate = r.rate / 10; };
       d.sessions.forEach((s) => conv(s.rule));
       d.myRules.forEach(conv);
       d.migrated = true;
     }
-    d.version = 2;
+    if ((d.version || 1) < 3) {
+      // v2 のレートは「×10＝テンピン」。v3 は 1pt（1,000点）あたりの数で「×100＝テンピン」
+      const conv = (r) => { if (r && r.rate) r.rate = Math.round(r.rate * 10 * 10) / 10; };
+      d.sessions.forEach((s) => conv(s.rule));
+      d.myRules.forEach(conv);
+      d.migrated = true;
+    }
+    d.version = 3;
     // 以前のアイコン（いらすとや）を使っていた人は新しいアイコンに置き換える
     const usedIcons = new Set(d.players.map((p) => p.icon).filter((k) => ICON_KEYS.includes(k)));
     d.players.forEach((p, i) => {
@@ -86,6 +93,41 @@
 
   // ---------- 共通パーツ ----------
   const app = document.getElementById('app');
+
+  // 大きな数字（収支 +20,114.5pt など）が枠に入りきらないときだけ、文字を少しずつ小さくする（最小 11px）
+  function fitNumbers() {
+    const textW = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
+    app.querySelectorAll('.tile-value, .kv .v, .s-val').forEach((el) => {
+      if (!el.offsetParent) return;
+      el.style.fontSize = '';
+      const box = el.closest('.tile, .kv, .s-res') || el.parentElement;
+      const room = () => Math.min(el.clientWidth || Infinity, box.getBoundingClientRect().right - el.getBoundingClientRect().left);
+      let size = parseFloat(getComputedStyle(el).fontSize);
+      while (textW(el) > room() + 0.5 && size > 11) {
+        size -= 1;
+        el.style.fontSize = `${size}px`;
+      }
+    });
+    // 同じ一覧の同じ種類の数字（今日の結果の「合計」「収支」など）は、一番小さくした人に大きさをそろえる
+    const groups = new Map();
+    app.querySelectorAll('.tile-value, .kv .v, .s-val').forEach((el) => {
+      if (!el.offsetParent) return;
+      const kv = el.closest('.kv');
+      // 大きく出す数字（合計・収支）はまとめて1つのグループにする
+      const key = [el.closest('.card, .tiles, main'), kv ? (kv.classList.contains('big') ? 'big' : kv.querySelector('.k').textContent) : el.className];
+      const k = groups.get(key[0]) || new Map();
+      groups.set(key[0], k);
+      (k.get(key[1]) || k.set(key[1], []).get(key[1])).push(el);
+    });
+    for (const byRole of groups.values()) {
+      for (const els of byRole.values()) {
+        const min = Math.min(...els.map((el) => parseFloat(getComputedStyle(el).fontSize)));
+        els.forEach((el) => { if (parseFloat(getComputedStyle(el).fontSize) > min) el.style.fontSize = `${min}px`; });
+      }
+    }
+  }
+  new MutationObserver(() => requestAnimationFrame(fitNumbers)).observe(app, { childList: true, subtree: true });
+  window.addEventListener('resize', () => requestAnimationFrame(fitNumbers));
   const $ = (sel) => app.querySelector(sel);
   const $$ = (sel) => [...app.querySelectorAll(sel)];
 
@@ -134,11 +176,12 @@
     return `<div class="opts">${list.map((v, i) => `<button type="button" class="opt ${!isCustom && sameArr(v, current) ? 'on' : ''}" data-opt="${key}" data-i="${i}">
       ${esc(label(v))}${sub ? `<small>${esc(sub(v))}</small>` : ''}</button>`).join('')}
       ${custom ? `<button type="button" class="opt ${isCustom ? 'on' : ''}" data-opt="${key}" data-i="custom">その他<small>数字を入力</small></button>` : ''}</div>
-      ${isCustom ? `<div class="custom-in">${custom.before}<input class="input" type="number" inputmode="decimal" min="0.1" max="100" step="any" data-custom="${key}" value="${current || ''}" aria-label="数字を入力">${custom.unit}</div>
-        <div class="muted custom-msg" data-custom-msg="${key}">0.1〜100 の数字を入れてください</div>` : ''}`;
+      ${isCustom ? `<div class="custom-in">${custom.before}<input class="input" type="number" inputmode="decimal" min="${custom.min}" max="${custom.max}" step="any" data-custom="${key}" value="${current || ''}" aria-label="数字を入力">${custom.unit}</div>
+        <div class="muted custom-msg" data-custom-msg="${key}">${custom.min}〜${custom.max.toLocaleString('ja-JP')} の数字を入れてください</div>` : ''}`;
   }
-  const CHIP_CUSTOM = { before: '1枚', unit: 'pt' };
-  const RATE_CUSTOM = { before: '精算ptを ×', unit: '倍' };
+  const CHIP_CUSTOM = { before: '1枚', unit: 'pt', min: 0.1, max: 100 };
+  const RATE_CUSTOM = { before: '収支は合計の ×', unit: '', min: 0.1, max: 1000 };
+  const CUSTOM_RANGE = { chipPt: CHIP_CUSTOM, rate: RATE_CUSTOM };
 
   // 選択肢ボタンの操作を target（ルールの値）に反映する
   function bindOpts(target, n, rerender) {
@@ -154,7 +197,8 @@
     });
     $$('[data-custom]').forEach((inp) => {
       const k = inp.dataset.custom;
-      const valid = () => { const v = Number(inp.value); return inp.value !== '' && v >= 0.1 && v <= 100 ? Math.round(v * 10) / 10 : null; };
+      const { min, max } = CUSTOM_RANGE[k];
+      const valid = () => { const v = Number(inp.value); return inp.value !== '' && v >= min && v <= max ? Math.round(v * 10) / 10 : null; };
       inp.oninput = () => {
         const v = valid();
         $(`[data-custom-msg="${k}"]`).classList.toggle('error', v === null);
@@ -166,11 +210,11 @@
 
   // ---------- ルールの項目と用語の説明 ----------
   const TERMS = {
-    base: ['持ち点・返し', '「持ち点」は最初に配られる点数。「返し」は精算の基準になる点数です。返しが持ち点より多いと、その差（例: 5,000点×4人＝20pt）がトップの人のボーナス「オカ」になります。'],
+    base: ['持ち点・返し', '「持ち点」は最初に配られる点数。「返し」は順位点を計算するときの基準になる点数です。返しが持ち点より多いと、その差（例: 5,000点×4人＝20pt）がトップの人のボーナス「オカ」になります。'],
     uma: ['ウマ', '順位に応じてやりとりするptです。例えば「10-30」なら 1位+30、2位+10、3位−10、4位−30pt。数字が大きいほど順位の差がはっきり出ます。'],
     tobiPt: ['飛び賞', '誰かの点数が0点未満（飛び）になったとき、飛ばした人が飛んだ人からもらうptです。'],
-    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。精算のときに1枚あたりのptで換算します。使わないなら「なし」。'],
-    rate: ['レート', '精算ptにかける倍率です。例えばテンピン（×10）なら、総合+10.0ptは精算+100.0ptになります。なしなら総合ptのまま精算します。'],
+    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。1枚あたりのptで合計に足します。使わないなら「なし」。'],
+    rate: ['レート', '合計ptにかける倍率で、1pt（1,000点）あたりの数です。テンサンは×30、テンゴは×50、テンピンは×100、テンリャンピンは×200。例えばテンピンなら、合計+250.0ptの収支は+25,000ptです。なしなら収支は出しません。'],
   };
   // ラベルをタップすると説明が開く
   function termLabel(key, tag = 'div') {
@@ -186,7 +230,7 @@
   }
   // おすすめのルールの「内容を読み込む」部品。選んでいる状態（緑）にはしない＝どのルールを編集中か紛らわしくしない
   let presetLoadedMsg = '';
-  let footOpen = false; // 対局の表：内訳（半荘計・チップ・精算・順位）を開いているか
+  let footOpen = false; // 対局の表：内訳（半荘計・チップ・順位）を開いているか
   function presetLoader(n) {
     return `<details class="help preset-loader"><summary><div class="help-title">おすすめのルールの内容を読み込む</div><span class="q">▼</span></summary>
       <p>選んだおすすめの内容で、下の項目をまとめて置き換えます。ルールの名前は変わりません。</p>
@@ -213,7 +257,8 @@
   const RECOMMENDED = { 4: 'mleague', 3: 'sanma' };
 
   // ---------- ホーム ----------
-  // 対局の記録の一覧に出す結果：1位から順に、アイコン・名前・数字（レートありは精算、なしは合計pt）。
+  // 対局の記録の一覧に出す結果：1位から順に、アイコン・名前・数字（レートありは収支、なしは合計pt）。
+  // 1人分の幅が狭いので、収支の単位 pt はここでは付けない（カンマ付きの数字だけ）。
   // 1人分の幅は対局画面の表と同じ考え方で「対局人数（四麻4人・三麻3人）でカードいっぱい」。5人以上は横スクロール
   function sessionResults(s) {
     const rows = summarizeSession(s).filter((r) => r.games > 0);
@@ -222,7 +267,7 @@
     rows.sort((a, b) => b.total10 - a.total10);
     return `<div class="s-scroll"><div class="s-results" style="--per:${s.mode}">${rows.map((r) => {
       const v = useSettle ? r.settle10 : r.total10;
-      return `<div class="s-res">${avatar(getPlayer(r.pid), 26)}<span class="s-name">${esc(playerName(r.pid))}</span><span class="s-val ${ptClass(v)}">${useSettle ? formatSettle(v) : formatPt(v)}</span></div>`;
+      return `<div class="s-res">${avatar(getPlayer(r.pid), 26)}<span class="s-name">${esc(playerName(r.pid))}</span><span class="s-val ${ptClass(v)}">${useSettle ? formatSettle(v, false) : formatPt(v)}</span></div>`;
     }).join('')}</div></div>`;
   }
 
@@ -343,7 +388,7 @@
       ['プレイヤーを登録', '下の「プレイヤー」から、一緒に打つ人の名前を登録します。アイコンや写真も付けられます。'],
       ['対局を始める', 'ホームの「新しい対局を始める」で、メンバーとルールを選びます。5人以上選ぶと、半荘ごとに交代しながら打てます。'],
       ['点数を入力', '半荘が終わったら、各自の最終点数を100点単位で入力します（42,300点なら 423）。最後の1人は「自動計算」ボタンで入れられます。全員の合計が合っているかも確認できます。'],
-      ['精算・成績を見る', '対局画面の下に精算が出ます。「成績」では、これまでの順位率やptの推移が見られます。'],
+      ['収支・成績を見る', '対局画面に合計と収支（レートありのとき）が出ます。「成績」では、これまでの順位率やptの推移が見られます。'],
     ];
     app.innerHTML = `${header('使い方', '#/')}
     <main>
@@ -541,6 +586,9 @@
     return `<span class="rank-badge ${cls}">${rank}位</span>`;
   }
 
+  // 今日の結果に出すレート名（テンピンなど。倍率は出さない）
+  const rateName = rateLabel;
+
   function viewSession(id) {
     const s = findSession(id);
     if (!s) return (location.hash = '#/');
@@ -566,14 +614,14 @@
     }).join('');
     const foot = (label, cells, cls = '') => `<tr class="foot ${cls}"><td class="num">${label}</td>${cells.join('')}</tr>`;
     const ptCell = (v, has = true) => `<td class="${has ? ptClass(v) : 'absent'}">${has ? formatPt(v) : '―'}</td>`;
-    // 集計：「合計」と「精算」を最初から出し、内訳はボタンで開く（開くとすぐ下に出る）
+    // 集計：「合計」と「収支」を最初から出し、内訳はボタンで開く（開くとすぐ下に出る）
     const details = [
       useChips ? ['半荘計', foot('半荘計', summary.map((r) => ptCell(r.pt10, r.games > 0)), 'breakdown-row')] : null,
       useChips ? ['チップ', foot('チップ', summary.map((r) => ptCell(r.total10 - r.pt10)), 'breakdown-row')] : null,
       ['順位', foot('順位', summary.map((r) => `<td class="ranks">${r.games ? r.ranks.slice(0, n).join('-') : '―'}</td>`), 'breakdown-row')],
     ].filter(Boolean);
     const footRows = foot('合計', summary.map((r) => ptCell(r.total10, r.games > 0 || r.chips !== 0)), 'main first')
-      + (showSettle ? foot('精算', summary.map((r) => `<td class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</td>`), 'main') : '')
+      + (showSettle ? foot('収支', summary.map((r) => `<td class="${ptClass(r.settle10)}">${formatSettle(r.settle10, false)}</td>`), 'main') : '')
       + details.map(([, row]) => row).join('');
     // ボタンは1行に収める（項目名まで並べると SE の幅で2行に折り返すため、項目名は下の説明に書く）
     const toggleLabel = () => footOpen ? '▲ 内訳を閉じる' : '▼ 内訳を見る';
@@ -584,7 +632,7 @@
         <tfoot>${footRows}</tfoot></table></div></div>
       <button type="button" id="foot-toggle" class="btn small foot-toggle">${toggleLabel()}</button>
       <div class="legend"><span class="tobi-sample"></span>＝飛び</div>
-      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? `精算は合計×${s.rule.rate}、` : ''}${useChips ? '合計は半荘計＋チップ。' : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
+      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? '収支はレート込みのptです。' : ''}${useChips ? '合計は半荘計＋チップ。' : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
 
     app.innerHTML = `${header(s.name || fmtDate(s.date), '#/')}
     <main>
@@ -592,16 +640,17 @@
       <h2>半荘の結果（${s.games.length}回）</h2>
       <div class="card">${s.games.length ? gameTable : '<p class="empty" style="padding:8px 0">まだ半荘の記録がありません</p>'}</div>
 
-      <h2>今日の結果${showSettle ? `（精算 ＝ 合計 × ${esc(rateLabel(s.rule.rate))}）` : ''}</h2>
+      <h2>今日の結果</h2>
+      ${showSettle ? `<p class="muted rate-note">レート：${rateName(s.rule.rate)}</p>` : ''}
       <div class="card">
         ${ranking.length ? ranking.map((r, i) => `<div class="person-row result-line">
           <span class="rk">${i + 1}</span>${avatar(getPlayer(r.pid), 36)}
           <div class="nm"><div class="pname">${esc(playerName(r.pid))}</div>
             <div class="cell-sub breakdown">${breakdown(r)}</div></div>
           ${showSettle
-            ? numCol([['精算', `<span class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</span>`, true], ['合計', `${formatPt(r.total10)} ×${s.rule.rate}`]])
+            ? numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true], ['収支', `<span class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</span>`, true]])
             : numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true]])}
-        </div>`).join('') : '<p class="empty" style="padding:8px 0">半荘の結果を入力すると、ここに順位と精算が出ます</p>'}
+        </div>`).join('') : '<p class="empty" style="padding:8px 0">半荘の結果を入力すると、ここに順位と収支が出ます</p>'}
         ${useChips ? `<a class="btn chip-link" href="#/session/${s.id}/chips">チップを入力${chipEntered ? '（入力済み）' : ''}</a>
           <p class="muted" style="margin:6px 0 0">チップは最後に手元の枚数を数えて入力します（1枚 = ${s.rule.chipPt}pt）</p>` : ''}
       </div>
@@ -637,7 +686,10 @@
       table.style.minWidth = `${numW + need * cols}px`;
       const outer = scroller.parentElement;
       const mark = () => {
-        $('#scroll-hint').hidden = scroller.scrollWidth <= scroller.clientWidth + 1;
+        // 別の画面に移ったあと（表がなくなったあと）に呼ばれても何もしない
+        const hint = $('#scroll-hint');
+        if (!hint || !scroller.isConnected) return;
+        hint.hidden = scroller.scrollWidth <= scroller.clientWidth + 1;
         outer.classList.toggle('more', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 2);
       };
       scroller.addEventListener('scroll', mark, { passive: true });
@@ -1003,7 +1055,7 @@
         <span class="rk">${i + 1}</span>${avatar(getPlayer(st.pid), 40)}
         <div class="nm"><div class="ellipsis">${esc(playerName(st.pid))}</div>
           <div class="cell-sub nowrap-parts"><span>${st.games}半荘・平均${st.avgRank.toFixed(2)}位</span> <span>トップ${formatPct(st.ranks[0] / st.games)}・ラス${formatPct(lastRankRate(st, n))}</span></div></div>
-        ${numCol([['総合', `<span class="${ptClass(st.total10)}">${formatPt(st.total10)}</span>`, true], ...(st.hasSettle ? [['精算', `<span class="${ptClass(st.settle10)}">${formatSettle(st.settle10)}</span>`]] : [])])}
+        ${numCol([['総合', `<span class="${ptClass(st.total10)}">${formatPt(st.total10)}</span>`, true], ...(st.hasSettle ? [['収支', `<span class="${ptClass(st.settle10)}">${formatSettle(st.settle10)}</span>`]] : [])])}
       </a></li>`).join('')}</ul>
       <p class="muted">総合pt ＝ 半荘のpt（飛び賞込み）＋ チップ。名前をタップすると詳しい成績が見られます。</p>`
         : `<p class="empty">この条件の${n === 4 ? '四麻' : '三麻'}の記録はまだありません</p>`}
@@ -1078,7 +1130,7 @@
         ${tile('総合pt', formatPt(st.total10), ptClass(st.total10))}
         ${tile('半荘数', `${st.games}`)}
         ${tile('平均順位', `${st.avgRank.toFixed(2)}位`)}
-        ${st.hasSettle ? tile('精算pt（レート込み）', formatSettle(st.settle10), ptClass(st.settle10)) : tile('チップ', formatPt(st.chip10), ptClass(st.chip10))}
+        ${st.hasSettle ? tile('収支（レート込み）', formatSettle(st.settle10), ptClass(st.settle10)) : tile('チップ', formatPt(st.chip10), ptClass(st.chip10))}
       </div>
 
       <h2>順位率</h2>
