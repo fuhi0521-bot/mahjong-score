@@ -1,7 +1,7 @@
 // 画面の描画と操作
 (function () {
   const { SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, calcGame, summarizeSession,
-    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats,
+    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid,
     baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary } = MJ;
 
   // 初期アイコン（icons/*.svg、このアプリ用に作成）
@@ -88,7 +88,7 @@
     return `<header class="top">${back ? `<a class="back" href="${back}">‹ 戻る</a>` : ''}<h1>${esc(title)}</h1></header>`;
   }
   function nav(current) {
-    const items = [['#/', '🀄', 'ホーム', 'home'], ['#/stats', '📊', '成績', 'stats'], ['#/players', '👥', 'プレイヤー', 'players'], ['#/rules', '📋', 'ルール', 'rules']];
+    const items = [['#/', '🀄', 'ホーム', 'home'], ['#/stats', '📊', '成績', 'stats'], ['#/calc', '🧮', '点数計算', 'calc'], ['#/players', '👥', 'プレイヤー', 'players'], ['#/rules', '📋', 'ルール', 'rules']];
     return `<nav class="nav">${items.map(([href, ico, label, key]) =>
       `<a href="${href}" class="${key === current ? 'on' : ''}"><span class="ico">${ico}</span>${label}</a>`).join('')}</nav>`;
   }
@@ -209,6 +209,74 @@
       mark();
     });
   }
+
+  // ---------- 点数計算 ----------
+  const HAN_OPTIONS = [
+    [1, '1翻'], [2, '2翻'], [3, '3翻'], [4, '4翻'],
+    [5, '満貫', '5翻'], [6, '跳満', '6〜7翻'], [8, '倍満', '8〜10翻'], [11, '三倍満', '11〜12翻'], [13, '役満', '13翻〜'],
+  ];
+  const FU_OPTIONS = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110];
+  const calcState = { dealer: false, tsumo: false, han: 3, fu: 30, honba: 0 };
+  const yen = (v) => `${v.toLocaleString('ja-JP')}点`;
+
+  function viewCalc() {
+    const c = calcState;
+    const limit = c.han >= 5;
+    const invalid = handInvalid(c.fu, c.han, c.tsumo);
+    const r = handPoints(c);
+    const who = c.dealer ? '親' : '子';
+    const cond = `${who}・${limit ? HAN_OPTIONS.find(([v]) => v === c.han)[1] : `${c.fu}符${c.han}翻`}・${c.tsumo ? 'ツモ' : 'ロン'}${c.honba ? `・${c.honba}本場` : ''}`;
+    let main = '', sub = '';
+    if (!c.tsumo) {
+      main = yen(r.ron);
+      sub = '放銃した人が払います';
+    } else if (c.dealer) {
+      main = `${yen(r.tsumoAll)}オール`;
+      sub = `子3人がそれぞれ払う（合計 ${yen(r.total)}）`;
+    } else {
+      main = `<div class="calc-split"><div><span class="calc-who">子から</span>${yen(r.tsumoChild)}</div><div><span class="calc-who">親から</span>${yen(r.tsumoDealer)}</div></div>`;
+      sub = `合計 ${yen(r.total)}`;
+    }
+    const seg = (key, a, b) => `<div class="seg"><button data-seg="${key}" data-v="0" class="${!c[key] ? 'on' : ''}">${a}</button><button data-seg="${key}" data-v="1" class="${c[key] ? 'on' : ''}">${b}</button></div>`;
+
+    app.innerHTML = `${header('点数計算')}
+    <main>
+      <div class="calc-result card">
+        <div class="muted">${cond}</div>
+        ${invalid ? `<div class="calc-main muted">―</div><div class="notice" style="margin:4px 0 0">${invalid}</div>`
+          : `<div class="calc-main">${main}</div><div class="calc-sub">${sub}</div>${r.name ? `<span class="badge">${r.name}</span>` : ''}${c.honba ? `<div class="muted small">${c.honba}本場ぶん（${c.tsumo ? `1人 +${c.honba * 100}点` : `+${c.honba * 300}点`}）を含みます</div>` : ''}`}
+      </div>
+
+      <div class="calc-row">${seg('dealer', '子', '親')}${seg('tsumo', 'ロン', 'ツモ')}</div>
+
+      <div class="label calc-label">翻</div>
+      <div class="opts grid4">${HAN_OPTIONS.map(([v, label, small]) => `<button type="button" class="opt ${c.han === v ? 'on' : ''}" data-han="${v}">${label}${small ? `<small>${small}</small>` : ''}</button>`).join('')}</div>
+
+      <details class="help calc-help"><summary><div class="help-title">符</div><span class="q" aria-label="説明">？</span>${limit ? '<span class="muted small">満貫以上は符に関係ありません</span>' : ''}</summary>
+        <p>${FU_HELP}</p></details>
+      <div class="opts grid4 ${limit ? 'disabled' : ''}">${FU_OPTIONS.map((v) => `<button type="button" class="opt ${!limit && c.fu === v ? 'on' : ''}" data-fu="${v}" ${limit ? 'disabled' : ''}>${v}符</button>`).join('')}</div>
+
+      <div class="label calc-label">本場</div>
+      <div class="card person-row honba-row"><span class="nm">積み棒（本場）</span>
+        <div class="chip-ctl"><button data-honba="-1" aria-label="減らす">−</button><span>${c.honba}</span><button data-honba="1" aria-label="増やす">＋</button></div></div>
+    </main>${nav('calc')}`;
+
+    const rerender = () => { const y = window.scrollY; viewCalc(); window.scrollTo(0, y); };
+    $$('[data-seg]').forEach((b) => b.onclick = () => { c[b.dataset.seg] = b.dataset.v === '1'; rerender(); });
+    $$('[data-han]').forEach((b) => b.onclick = () => { c.han = Number(b.dataset.han); rerender(); });
+    $$('[data-fu]').forEach((b) => b.onclick = () => { c.fu = Number(b.dataset.fu); rerender(); });
+    $$('[data-honba]').forEach((b) => b.onclick = () => { c.honba = Math.max(0, c.honba + Number(b.dataset.honba)); rerender(); });
+  }
+
+  const FU_HELP = [
+    '基本は20符。そこに次を足して、最後に10符単位に切り上げます（例: 32符→40符）。',
+    '・門前でロン：+10符／ツモ：+2符（平和ツモは付かない）',
+    '・待ち：カンチャン・ペンチャン・単騎 +2符',
+    '・雀頭：役牌（三元牌・自風・場風） +2符',
+    '・明刻：中張牌 2符／么九牌 4符、暗刻：中張牌 4符／么九牌 8符',
+    '・明槓：中張牌 8符／么九牌 16符、暗槓：中張牌 16符／么九牌 32符',
+    '・例外：平和ツモは20符、平和ロンは30符、七対子は25符で固定',
+  ].join('<br>');
 
   // ---------- 使い方 ----------
   function viewHelp() {
@@ -1158,6 +1226,7 @@
     if (parts[0] === 'stats' && parts[1]) return viewStatsDetail(parts[1]);
     if (parts[0] === 'stats') return viewStats();
     if (parts[0] === 'help') return viewHelp();
+    if (parts[0] === 'calc') return viewCalc();
     if (parts[0] === 'new') return viewNew();
     if (parts[0] === 'players' && parts[1]) return viewPlayerEdit(parts[1]);
     if (parts[0] === 'players') return viewPlayers();

@@ -517,3 +517,24 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
   position: absolute; top: 3px; right: 3px; font-size: 10px; font-weight: 700; line-height: 1;
   padding: 3px 5px; border-radius: 6px; background: var(--accent); color: #fff;
 }
+
+/* 点数計算 */
+.calc-result { position: sticky; top: calc(48px + env(safe-area-inset-top)); z-index: 5; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.calc-main { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.calc-sub { font-size: 13px; color: var(--muted); }
+.calc-result .badge { margin-top: 6px; display: inline-block; }
+.calc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 12px 0 4px; }
+.calc-label { margin: 14px 0 6px; font-weight: 600; }
+.calc-help { margin: 14px 0 6px; }
+.opts.grid4 { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.opts.grid4 .opt { min-height: 48px; padding: 4px 2px; }
+.opts.disabled .opt { opacity: .4; cursor: default; }
+.honba-row { padding: 10px 14px; margin: 0; }
+.nav a { font-size: 11px; }
+.opts.grid4 .opt { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.calc-who { font-size: 14px; font-weight: 700; color: var(--muted); margin-right: 4px; }
+.calc-sub { word-break: keep-all; overflow-wrap: anywhere; }
+.calc-main { font-size: 26px; }
+.calc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.calc-split > div { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+.calc-split .calc-who { font-size: 12px; margin: 0; }

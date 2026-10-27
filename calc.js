@@ -185,6 +185,45 @@
     return stats;
   }
 
+  // ---------- 和了点の計算（四麻） ----------
+  const LIMITS = [
+    { han: 13, name: '役満', base: 8000 },
+    { han: 11, name: '三倍満', base: 6000 },
+    { han: 8, name: '倍満', base: 4000 },
+    { han: 6, name: '跳満', base: 3000 },
+    { han: 5, name: '満貫', base: 2000 },
+  ];
+  const ceil100 = (v) => Math.ceil(v / 100) * 100;
+
+  // 存在しない符・翻の組み合わせなら理由を返す
+  function handInvalid(fu, han, tsumo) {
+    if (han >= 5) return null; // 満貫以上は符に関係ない
+    if (fu === 20 && !tsumo) return '20符のロンはありません（ロンの平和は30符）';
+    if (fu === 20 && han === 1) return '20符1翻はありません（平和ツモは2翻から）';
+    if (fu === 25 && han === 1) return '25符1翻はありません（七対子は2翻から）';
+    return null;
+  }
+
+  // fu: 符、han: 翻、dealer: 親か、tsumo: ツモか、honba: 本場
+  // 戻り値: { name, base, total, ron | (tsumoDealer, tsumoChild | tsumoAll) }
+  function handPoints({ fu, han, dealer, tsumo, honba = 0 }) {
+    const limit = LIMITS.find((l) => han >= l.han);
+    let base = limit ? limit.base : fu * 2 ** (han + 2);
+    let name = limit ? limit.name : '';
+    if (!limit && base > 2000) { base = 2000; name = '満貫'; } // 4翻40符・3翻70符など
+    if (!tsumo) {
+      const ron = ceil100(base * (dealer ? 6 : 4)) + honba * 300;
+      return { name, base, ron, total: ron };
+    }
+    if (dealer) {
+      const all = ceil100(base * 2) + honba * 100;
+      return { name, base, tsumoAll: all, total: all * 3 };
+    }
+    const fromDealer = ceil100(base * 2) + honba * 100;
+    const fromChild = ceil100(base) + honba * 100;
+    return { name, base, tsumoDealer: fromDealer, tsumoChild: fromChild, total: fromDealer + fromChild * 2 };
+  }
+
   function formatPct(v) {
     return (v * 100).toFixed(1) + '%';
   }
@@ -215,7 +254,7 @@
 
   const MJ = {
     SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, okaPt10, calcGame, summarizeSession,
-    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats,
+    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid,
     baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = MJ;
