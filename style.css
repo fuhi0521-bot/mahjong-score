@@ -613,3 +613,16 @@ body { overflow-x: clip; }
 /* ズーム禁止：ダブルタップでの拡大を止め、入力欄を押したときの自動拡大（16px未満で起きる）も防ぐ */
 html { touch-action: manipulation; }
 input, select, textarea { font-size: 16px; }
+
+/* 集計の行：「合計」「精算」は最初から表示（太さは以前と同じ 700、大きさは半荘の数字と同じ 14px）。
+   内訳（半荘計・チップ・順位）はボタンで開き、太くしない */
+.score-table tfoot td { height: 30px; font-size: 13px; font-weight: 400; }
+.score-table tfoot tr.main td { height: 34px; }
+.score-table tfoot tr.main.first td { border-top: 2px solid var(--line); }
+/* 背景色はつけない（Excel の「集計」スタイルと同じく、太字＋上の区切り線で区別する） */
+.score-table tfoot tr.main td:not(.num) { font-size: 14px; font-weight: 700; background: none; border-radius: 0; }
+.score-table tfoot tr.main td.num { font-size: 11px; font-weight: 700; color: var(--text); }
+.score-table tfoot tr.breakdown-row td.num { font-weight: 400; }
+.score-table tfoot td.ranks { font-size: 12px; font-weight: 400; }
+.score-table:not(.open) tfoot tr.breakdown-row { display: none; }
+.foot-toggle { width: 100%; margin-top: 8px; }

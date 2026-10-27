@@ -186,6 +186,7 @@
   }
   // おすすめのルールの「内容を読み込む」部品。選んでいる状態（緑）にはしない＝どのルールを編集中か紛らわしくしない
   let presetLoadedMsg = '';
+  let footOpen = false; // 対局の表：内訳（半荘計・チップ・精算・順位）を開いているか
   function presetLoader(n) {
     return `<details class="help preset-loader"><summary><div class="help-title">おすすめのルールの内容を読み込む</div><span class="q">▼</span></summary>
       <p>選んだおすすめの内容で、下の項目をまとめて置き換えます。ルールの名前は変わりません。</p>
@@ -565,20 +566,25 @@
     }).join('');
     const foot = (label, cells, cls = '') => `<tr class="foot ${cls}"><td class="num">${label}</td>${cells.join('')}</tr>`;
     const ptCell = (v, has = true) => `<td class="${has ? ptClass(v) : 'absent'}">${has ? formatPt(v) : '―'}</td>`;
-    const footRows = [
-      foot('計', summary.map((r) => ptCell(r.pt10, r.games > 0)), 'first'),
-      useChips ? foot('チップ', summary.map((r) => ptCell(r.total10 - r.pt10))) : '',
-      useChips ? foot('合計', summary.map((r) => ptCell(r.total10)), 'strong') : '',
-      showSettle ? foot('精算', summary.map((r) => `<td class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</td>`), 'strong') : '',
-      foot('順位', summary.map((r) => `<td class="ranks">${r.games ? r.ranks.slice(0, n).join('-') : '―'}</td>`)),
-    ].join('');
+    // 集計：「合計」と「精算」を最初から出し、内訳はボタンで開く（開くとすぐ下に出る）
+    const details = [
+      useChips ? ['半荘計', foot('半荘計', summary.map((r) => ptCell(r.pt10, r.games > 0)), 'breakdown-row')] : null,
+      useChips ? ['チップ', foot('チップ', summary.map((r) => ptCell(r.total10 - r.pt10)), 'breakdown-row')] : null,
+      ['順位', foot('順位', summary.map((r) => `<td class="ranks">${r.games ? r.ranks.slice(0, n).join('-') : '―'}</td>`), 'breakdown-row')],
+    ].filter(Boolean);
+    const footRows = foot('合計', summary.map((r) => ptCell(r.total10, r.games > 0 || r.chips !== 0)), 'main first')
+      + (showSettle ? foot('精算', summary.map((r) => `<td class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</td>`), 'main') : '')
+      + details.map(([, row]) => row).join('');
+    // ボタンは1行に収める（項目名まで並べると SE の幅で2行に折り返すため、項目名は下の説明に書く）
+    const toggleLabel = () => footOpen ? '▲ 内訳を閉じる' : '▼ 内訳を見る';
     const gameTable = `<div class="table-outer"><div class="table-scroll">
-      <table class="score-table">
+      <table class="score-table ${footOpen ? 'open' : ''}">
         <thead><tr><th class="num">半荘</th>${s.playerIds.map((pid) => `<th>${avatar(getPlayer(pid), 28)}<div class="th-name">${esc(playerName(pid))}</div></th>`).join('')}</tr></thead>
         <tbody>${gameRows}</tbody>
         <tfoot>${footRows}</tfoot></table></div></div>
+      <button type="button" id="foot-toggle" class="btn small foot-toggle">${toggleLabel()}</button>
       <div class="legend"><span class="tobi-sample"></span>＝飛び</div>
-      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? `精算は合計×${s.rule.rate}、` : ''}順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
+      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? `精算は合計×${s.rule.rate}、` : ''}${useChips ? '合計は半荘計＋チップ。' : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
 
     app.innerHTML = `${header(s.name || fmtDate(s.date), '#/')}
     <main>
@@ -639,6 +645,12 @@
       mark();
     }
     $$('[data-gid]').forEach((tr) => tr.onclick = () => { location.hash = `#/session/${s.id}/game/${tr.dataset.gid}`; });
+    const footBtn = $('#foot-toggle');
+    if (footBtn) footBtn.onclick = () => {
+      footOpen = !footOpen;
+      $('.score-table').classList.toggle('open', footOpen);
+      footBtn.textContent = toggleLabel();
+    };
     $('#rename-session').onclick = () => {
       const v = prompt(`対局の名前（${SESSION_NAME_MAX}文字まで・空欄で日付表示）`, s.name || '');
       if (v === null) return;
