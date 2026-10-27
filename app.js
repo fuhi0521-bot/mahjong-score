@@ -1,7 +1,7 @@
 // 画面の描画と操作
 (function () {
   const { SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, calcGame, summarizeSession,
-    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid,
+    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
     baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary } = MJ;
 
   // 初期アイコン（icons/*.svg、このアプリ用に作成）
@@ -222,21 +222,29 @@
   }
 
   // ---------- 点数計算 ----------
-  const HAN_OPTIONS = [
-    [1, '1翻'], [2, '2翻'], [3, '3翻'], [4, '4翻'],
-    [5, '満貫', '5翻'], [6, '跳満', '6〜7翻'], [8, '倍満', '8〜10翻'], [11, '三倍満', '11〜12翻'], [13, '役満', '13翻〜'],
+  // 翻のボタン。y があるものは「役満の役で和了った」（y倍の役満）
+  const hanOptions = (basis) => [
+    { han: 1, label: '1翻' }, { han: 2, label: '2翻' }, { han: 3, label: '3翻' }, { han: 4, label: '4翻' },
+    { han: 5, label: '満貫', small: '5翻' }, { han: 6, label: '跳満', small: '6〜7翻' }, { han: 8, label: '倍満', small: '8〜10翻' },
+    { han: 11, label: '三倍満', small: BASES[basis].kazoe ? '11〜12翻' : '11翻〜' },
+    ...(BASES[basis].kazoe ? [{ han: 13, label: '数え役満', small: '13翻〜' }] : []),
+    { y: 1, label: '役満', small: '役満の役' }, { y: 2, label: 'ダブル', small: '役満×2', full: 'ダブル役満' }, { y: 3, label: 'トリプル', small: '役満×3', full: 'トリプル役満' },
   ];
   const FU_OPTIONS = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110];
-  const calcState = { dealer: false, tsumo: false, han: 3, fu: 30, honba: 0 };
+  const loadBasis = () => { try { return localStorage.getItem('mjscore.calcBasis') === 'mleague' ? 'mleague' : 'jantama'; } catch (e) { return 'jantama'; } };
+  const calcState = { dealer: false, tsumo: false, han: 3, fu: 30, honba: 0, yakuman: 0, basis: loadBasis() };
   const yen = (v) => `${v.toLocaleString('ja-JP')}点`;
+  const BASIS_HELP = '雀魂基準：30符4翻・60符3翻は7,700点（切り上げ満貫なし）。13翻以上は数え役満。<br>Mリーグ基準：30符4翻・60符3翻は満貫（切り上げ満貫）。13翻以上も三倍満まで（数え役満なし）。<br>どちらも、役満の役が重なったときはダブル役満・トリプル役満になり、1本場は300点です。';
 
   function viewCalc() {
     const c = calcState;
-    const limit = c.han >= 5;
-    const invalid = handInvalid(c.fu, c.han, c.tsumo);
+    const opts = hanOptions(c.basis);
+    const fuFree = c.yakuman > 0 || c.han >= 5; // 符に関係ない
+    const invalid = c.yakuman ? null : handInvalid(c.fu, c.han, c.tsumo);
     const r = handPoints(c);
     const who = c.dealer ? '親' : '子';
-    const cond = `${who}・${limit ? HAN_OPTIONS.find(([v]) => v === c.han)[1] : `${c.fu}符${c.han}翻`}・${c.tsumo ? 'ツモ' : 'ロン'}${c.honba ? `・${c.honba}本場` : ''}`;
+    const sel = opts.find((o) => (c.yakuman ? o.y === c.yakuman : !o.y && o.han === c.han));
+    const cond = `${BASES[c.basis].name}基準・${who}・${fuFree ? sel.full || sel.label : `${c.fu}符${c.han}翻`}・${c.tsumo ? 'ツモ' : 'ロン'}${c.honba ? `・${c.honba}本場` : ''}`;
     let main = '', sub = '';
     if (!c.tsumo) {
       main = yen(r.ron);
@@ -258,14 +266,17 @@
           : `<div class="calc-main">${main}</div><div class="calc-sub">${sub}</div>${r.name ? `<span class="badge">${r.name}</span>` : ''}${c.honba ? `<div class="muted small">${c.honba}本場ぶん（${c.tsumo ? `1人 +${c.honba * 100}点` : `+${c.honba * 300}点`}）を含みます</div>` : ''}`}
       </div>
 
+      <details class="help calc-help"><summary><div class="help-title">点数の基準</div><span class="q" aria-label="説明">？</span></summary><p>${BASIS_HELP}</p></details>
+      <div class="seg"><button data-basis="jantama" class="${c.basis === 'jantama' ? 'on' : ''}">雀魂基準</button><button data-basis="mleague" class="${c.basis === 'mleague' ? 'on' : ''}">Mリーグ基準</button></div>
+
       <div class="calc-row">${seg('dealer', '子', '親')}${seg('tsumo', 'ロン', 'ツモ')}</div>
 
       <div class="label calc-label">翻</div>
-      <div class="opts grid4">${HAN_OPTIONS.map(([v, label, small]) => `<button type="button" class="opt ${c.han === v ? 'on' : ''}" data-han="${v}">${label}${small ? `<small>${small}</small>` : ''}</button>`).join('')}</div>
+      <div class="opts grid4">${opts.map((o) => `<button type="button" class="opt ${o === sel ? 'on' : ''}" ${o.y ? `data-yakuman="${o.y}"` : `data-han="${o.han}"`}>${o.label}${o.small ? `<small>${o.small}</small>` : ''}</button>`).join('')}</div>
 
-      <details class="help calc-help"><summary><div class="help-title">符</div><span class="q" aria-label="説明">？</span>${limit ? '<span class="muted small">満貫以上は符に関係ありません</span>' : ''}</summary>
+      <details class="help calc-help"><summary><div class="help-title">符</div><span class="q" aria-label="説明">？</span>${fuFree ? '<span class="muted small">満貫以上は符に関係ありません</span>' : ''}</summary>
         <p>${FU_HELP}</p></details>
-      <div class="opts grid4 ${limit ? 'disabled' : ''}">${FU_OPTIONS.map((v) => `<button type="button" class="opt ${!limit && c.fu === v ? 'on' : ''}" data-fu="${v}" ${limit ? 'disabled' : ''}>${v}符</button>`).join('')}</div>
+      <div class="opts grid4 ${fuFree ? 'disabled' : ''}">${FU_OPTIONS.map((v) => `<button type="button" class="opt ${!fuFree && c.fu === v ? 'on' : ''}" data-fu="${v}" ${fuFree ? 'disabled' : ''}>${v}符</button>`).join('')}</div>
 
       <div class="label calc-label">本場</div>
       <div class="card person-row honba-row"><span class="nm">積み棒（本場）</span>
@@ -274,7 +285,14 @@
 
     const rerender = () => { const y = window.scrollY; viewCalc(); window.scrollTo(0, y); };
     $$('[data-seg]').forEach((b) => b.onclick = () => { c[b.dataset.seg] = b.dataset.v === '1'; rerender(); });
-    $$('[data-han]').forEach((b) => b.onclick = () => { c.han = Number(b.dataset.han); rerender(); });
+    $$('[data-basis]').forEach((b) => b.onclick = () => {
+      c.basis = b.dataset.basis;
+      if (!BASES[c.basis].kazoe && !c.yakuman && c.han >= 13) c.han = 11; // Mリーグには数え役満がない
+      try { localStorage.setItem('mjscore.calcBasis', c.basis); } catch (e) { /* 保存できなくても計算はできる */ }
+      rerender();
+    });
+    $$('[data-han]').forEach((b) => b.onclick = () => { c.han = Number(b.dataset.han); c.yakuman = 0; rerender(); });
+    $$('[data-yakuman]').forEach((b) => b.onclick = () => { c.yakuman = Number(b.dataset.yakuman); rerender(); });
     $$('[data-fu]').forEach((b) => b.onclick = () => { c.fu = Number(b.dataset.fu); rerender(); });
     $$('[data-honba]').forEach((b) => b.onclick = () => { c.honba = Math.max(0, c.honba + Number(b.dataset.honba)); rerender(); });
   }

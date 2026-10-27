@@ -585,3 +585,5 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
 .opts.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .opts.cols2 .opt { white-space: normal; }
 .seat-row:last-child { border-bottom: 1px solid transparent; }
+/* 点数計算の4列ボタン：一番小さいiPhoneでも「数え役満」「トリプル」が1行に入る文字の大きさ */
+.opts.grid4 .opt { font-size: 14px; padding: 4px 1px; white-space: nowrap; }

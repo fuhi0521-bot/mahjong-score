@@ -186,13 +186,15 @@
   }
 
   // ---------- 和了点の計算（四麻） ----------
-  const LIMITS = [
-    { han: 13, name: '役満', base: 8000 },
-    { han: 11, name: '三倍満', base: 6000 },
-    { han: 8, name: '倍満', base: 4000 },
-    { han: 6, name: '跳満', base: 3000 },
-    { han: 5, name: '満貫', base: 2000 },
-  ];
+  // 基準（basis）は2つ。違いは次のとおり（2026-10 時点の各公式ルールより）
+  //   jantama（雀魂）  : 切り上げ満貫なし。13翻以上は数え役満
+  //   mleague（Mリーグ）: 30符4翻・60符3翻は満貫（切り上げ満貫）。役満以外は三倍満まで（数え役満なし）
+  // どちらも役満の複合（ダブル役満・トリプル役満）はあり、1本場は300点
+  const BASES = {
+    jantama: { name: '雀魂', kiriage: false, kazoe: true },
+    mleague: { name: 'Mリーグ', kiriage: true, kazoe: false },
+  };
+  const YAKUMAN_NAMES = ['', '役満', 'ダブル役満', 'トリプル役満'];
   const ceil100 = (v) => Math.ceil(v / 100) * 100;
 
   // 存在しない符・翻の組み合わせなら理由を返す
@@ -204,13 +206,25 @@
     return null;
   }
 
-  // fu: 符、han: 翻、dealer: 親か、tsumo: ツモか、honba: 本場
+  // 翻と符から、満貫以上の名前と基本点を決める
+  function handBase(fu, han, basis, yakuman) {
+    if (yakuman) return { name: YAKUMAN_NAMES[yakuman], base: 8000 * yakuman };
+    const b = BASES[basis] || BASES.jantama;
+    if (han >= 13 && b.kazoe) return { name: '数え役満', base: 8000 };
+    if (han >= 11) return { name: '三倍満', base: 6000 };
+    if (han >= 8) return { name: '倍満', base: 4000 };
+    if (han >= 6) return { name: '跳満', base: 3000 };
+    if (han >= 5) return { name: '満貫', base: 2000 };
+    if (b.kiriage && ((han === 4 && fu >= 30) || (han === 3 && fu >= 60))) return { name: '満貫（切り上げ）', base: 2000 };
+    const base = fu * 2 ** (han + 2);
+    return base > 2000 ? { name: '満貫', base: 2000 } : { name: '', base }; // 4翻40符・3翻70符など
+  }
+
+  // fu: 符、han: 翻、dealer: 親か、tsumo: ツモか、honba: 本場、basis: 'jantama' | 'mleague'
+  // yakuman: 役満の役で和了ったときの倍数（1=役満, 2=ダブル役満, 3=トリプル役満。0なら翻で計算）
   // 戻り値: { name, base, total, ron | (tsumoDealer, tsumoChild | tsumoAll) }
-  function handPoints({ fu, han, dealer, tsumo, honba = 0 }) {
-    const limit = LIMITS.find((l) => han >= l.han);
-    let base = limit ? limit.base : fu * 2 ** (han + 2);
-    let name = limit ? limit.name : '';
-    if (!limit && base > 2000) { base = 2000; name = '満貫'; } // 4翻40符・3翻70符など
+  function handPoints({ fu, han, dealer, tsumo, honba = 0, basis = 'jantama', yakuman = 0 }) {
+    const { name, base } = handBase(fu, han, basis, yakuman);
     if (!tsumo) {
       const ron = ceil100(base * (dealer ? 6 : 4)) + honba * 300;
       return { name, base, ron, total: ron };
@@ -254,7 +268,7 @@
 
   const MJ = {
     SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, okaPt10, calcGame, summarizeSession,
-    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid,
+    formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
     baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = MJ;
