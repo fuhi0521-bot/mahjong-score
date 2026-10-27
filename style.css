@@ -594,3 +594,18 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
 .preset-loader summary { margin-bottom: 0; }
 .preset-loader[open] summary { margin-bottom: 8px; }
 .creating-note { font-size: 14px; border-color: var(--accent); }
+
+/* 日付欄：iOS は type=date が独自の最小幅を持ち、画面からはみ出して横スクロールが出るため打ち消す */
+input[type="date"].input { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; height: 44px; min-height: 44px; padding: 0 12px; text-align: left; }
+input[type="date"].input::-webkit-date-and-time-value { text-align: left; margin: 0; line-height: 42px; }
+input[type="date"].input::-webkit-datetime-edit { padding: 0; line-height: 42px; }
+body { overflow-x: clip; }
+
+/* ルール作成：名前 → 細かい設定 の順。間隔を十分にとる */
+.save-rule { margin-top: 20px; }
+.creating-title { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+.creating-note .label { display: block; margin-bottom: 4px; }
+.step-label { margin: 16px 0 0; font-size: 13px; }
+.rule-name.unnamed { color: var(--muted); font-weight: 500; font-size: 15px; }
+/* 細かい設定（テンリャンピン等の最後の行）と、その下のボタン・カードの間をあける */
+.detail { margin-bottom: 20px; }

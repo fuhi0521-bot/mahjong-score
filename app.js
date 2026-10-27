@@ -380,7 +380,6 @@
     const canUseLast = last.length >= n && !sameArr(last, newState.selected);
     const count = newState.selected.length;
     const ready = count >= n;
-    const defaultSaveName = `マイルール${db.myRules.length + 1}`;
     const pastNames = [...new Set([...db.sessions].sort((a, b) => b.createdAt - a.createdAt).map((x) => x.name).filter(Boolean))].slice(0, 6);
     const mineRules = rules.filter((r) => r.mine);
     const presets = rules.filter((r) => !r.mine);
@@ -410,34 +409,39 @@
       <button type="button" id="new-player" class="btn add-player-btn">＋ 新しいプレイヤーを登録</button>
 
       <h2>ルール</h2>
-      ${newState.creating ? `<div class="card creating-note">新しいルールを作っています。今あるルールを使うときは「作成をやめる」を押してください。
-        <button type="button" id="cancel-create" class="btn" style="width:100%;margin-top:8px">作成をやめる</button></div>` : `
+      ${newState.creating ? `<div class="card creating-note">
+        <div class="creating-title">新しいルールを作成中</div>
+        <label for="save-name" class="label">① ルールの名前（必須・${RULE_NAME_MAX}文字まで）</label>
+        <input id="save-name" class="input" value="${esc(newState.saveName)}" placeholder="例: いつものメンツ" autocomplete="off">
+        <button type="button" id="cancel-create" class="btn" style="width:100%;margin-top:10px">作成をやめる（今あるルールを使う）</button></div>` : `
       ${mineRules.length ? `<div class="opts cols2">${mineRules.map(ruleBtn).join('')}</div>` : ''}
       ${showPresets ? `${mineRules.length ? '<div class="label" style="margin-top:10px">おすすめ</div>' : ''}
         <div class="opts cols2">${presets.map(ruleBtn).join('')}</div>`
         : '<button type="button" id="show-presets" class="btn small" style="margin-top:8px">おすすめから選ぶ ▼</button>'}`}
       <div class="card rule-now">
         <div class="muted small">${newState.creating ? '作成中のルール' : '使うルール'}</div>
-        <div class="rule-name" id="now-name">${newState.creating ? esc(newState.saveName.trim() || defaultSaveName) : matched ? esc(matched.name) : 'カスタム（変更あり）'}</div>
+        <div class="rule-name ${newState.creating && !newState.saveName.trim() ? 'unnamed' : ''}" id="now-name">${newState.creating ? esc(newState.saveName.trim() || '（名前を入力してください）') : matched ? esc(matched.name) : 'カスタム（変更あり）'}</div>
         ${matched && matched.desc && !newState.creating ? `<div class="rule-desc">${esc(matched.desc)}</div>` : ''}
         <div class="rule-sum">${esc(ruleSummary(rv))}</div>
       </div>
       ${takeLoadedMsg()}
-      <div class="inline">
+      ${newState.creating ? '' : `<div class="inline">
         <button type="button" id="toggle-detail" class="btn small">${newState.open ? '▲ 閉じる' : '▼ 細かく変える'}</button>
-        ${newState.creating ? '' : '<button type="button" id="create-rule" class="btn small">＋ 新しいルールを作る</button>'}
-      </div>
+        <button type="button" id="create-rule" class="btn small">＋ 新しいルールを作る</button>
+      </div>`}
 
-      ${newState.open ? `<div class="detail">
-        ${newState.creating ? `<p class="hint" style="margin:0 0 6px">今のルールをもとに、各項目を選んでください。下で名前を付けて保存できます。</p>${presetLoader(n)}` : ''}
+      ${newState.creating ? `<div class="label step-label">② 細かい設定（今のルールの内容から始まります）</div>` : ''}
+      ${newState.open || newState.creating ? `<div class="detail">
+        ${newState.creating ? presetLoader(n) : ''}
         ${ruleOptions(n, rv)}
       </div>` : ''}
 
-      ${matched && !newState.creating ? '' : `<div class="card save-rule">
+      ${matched || newState.creating ? '' : `<div class="card save-rule">
         <label class="check"><input type="checkbox" id="save-rule" ${newState.saveRule ? 'checked' : ''}> このルールを保存して次回も使う</label>
-        ${newState.saveRule ? `<input id="save-name" class="input" style="margin-top:8px" value="${esc(newState.saveName)}" placeholder="名前（例: いつものメンツ）" autocomplete="off">
-          <div class="muted" style="margin-top:4px">空欄なら「${defaultSaveName}」になります（${RULE_NAME_MAX}文字まで）</div>` : ''}
+        ${newState.saveRule ? `<label for="save-name" class="label" style="display:block;margin-top:10px">ルールの名前（必須・${RULE_NAME_MAX}文字まで）</label>
+          <input id="save-name" class="input" style="margin-top:4px" value="${esc(newState.saveName)}" placeholder="例: いつものメンツ" autocomplete="off">` : ''}
       </div>`}
+      ${newState.creating ? `<p class="hint">「対局を始める」を押すと、このルールがマイルールに保存されます。</p>` : ''}
 
       <div id="msg"></div>
       <button id="start" class="btn primary big sticky-bottom" ${ready ? '' : 'disabled'}>${ready ? (count > n ? `${count}人で交代しながら始める` : '対局を始める') : `あと${n - count}人選んでください`}</button>
@@ -465,7 +469,8 @@
       if (newState.selected.length < MEMBER_MAX) newState.selected.push(pid);
     });
     $$('[data-rule]').forEach((b) => b.onclick = () => { pickRule(findRule(b.dataset.rule)); rerender(); });
-    $('#toggle-detail').onclick = () => { newState.open = !newState.open; rerender(); };
+    const toggleBtn = $('#toggle-detail');
+    if (toggleBtn) toggleBtn.onclick = () => { newState.open = !newState.open; rerender(); };
     bindOpts(rv, n, rerender);
     const showBtn = $('#show-presets');
     if (showBtn) showBtn.onclick = () => { newState.showPresets = true; rerender(); };
@@ -477,13 +482,17 @@
       Object.assign(newState, { creating: true, open: true, saveRule: true, saveName: '' });
       rerender();
     };
-    if (!matched || newState.creating) {
-      $('#save-rule').onchange = (e) => { newState.saveRule = e.target.checked; rerender(); };
-      if (newState.saveRule) $('#save-name').oninput = (e) => {
-        newState.saveName = e.target.value;
-        if (newState.creating) $('#now-name').textContent = newState.saveName.trim() || defaultSaveName;
-      };
-    }
+    const saveChk = $('#save-rule');
+    if (saveChk) saveChk.onchange = (e) => { newState.saveRule = e.target.checked; rerender(); };
+    const saveName = $('#save-name');
+    if (saveName) saveName.oninput = (e) => {
+      newState.saveName = e.target.value;
+      if (newState.creating) {
+        const el = $('#now-name');
+        el.textContent = newState.saveName.trim() || '（名前を入力してください）';
+        el.classList.toggle('unnamed', !newState.saveName.trim());
+      }
+    };
     $('#start').onclick = () => {
       const sessionName = newState.name.trim();
       if (nameLength(sessionName) > SESSION_NAME_MAX) {
@@ -493,7 +502,12 @@
       let ruleId = matched ? matched.id : null;
       let ruleName = matched ? matched.name : 'カスタム';
       if ((!matched || newState.creating) && newState.saveRule) {
-        const name = newState.saveName.trim() || defaultSaveName;
+        const name = newState.saveName.trim();
+        if (!name) {
+          $('#msg').innerHTML = '<div class="notice">ルールの名前を入れてください</div>';
+          $('#save-name').focus();
+          return;
+        }
         if (nameLength(name) > RULE_NAME_MAX) {
           $('#msg').innerHTML = `<div class="notice">ルールの名前は${RULE_NAME_MAX}文字までです</div>`;
           return;
@@ -1242,18 +1256,17 @@
     const n = d.mode;
     const back = ruleReturn || '#/rules';
 
-    const defaultName = isNew ? `マイルール${db.myRules.length + 1}` : mine.name;
     app.innerHTML = `${header(isNew ? 'マイルールを作る' : 'マイルールを編集', back)}
     <main>
       <div class="card editing-card">
         <div class="muted small">${isNew ? '作成中のマイルール' : '編集中のマイルール'}（${n === 4 ? '四麻' : '三麻'}）</div>
-        <div class="rule-name" id="editing-name">${esc(d.name.trim() || defaultName)}</div>
+        <div class="rule-name ${d.name.trim() ? '' : 'unnamed'}" id="editing-name">${esc(d.name.trim() || '（名前を入力してください）')}</div>
         <div class="rule-sum">${esc(ruleSummary(d))}</div>
       </div>
       ${takeLoadedMsg()}
 
-      <div class="field" style="margin-top:12px"><label for="rname">ルールの名前（${RULE_NAME_MAX}文字まで）</label>
-        <input id="rname" class="input" value="${esc(d.name)}" maxlength="${RULE_NAME_MAX}" placeholder="${esc(defaultName)}" autocomplete="off"></div>
+      <div class="field" style="margin-top:12px"><label for="rname">ルールの名前（必須・${RULE_NAME_MAX}文字まで）</label>
+        <input id="rname" class="input" value="${esc(d.name)}" maxlength="${RULE_NAME_MAX}" placeholder="例: いつものメンツ" autocomplete="off"></div>
       ${isNew ? `<div class="field"><span class="label">人数</span>
         <div class="seg"><button data-mode="4" class="${n === 4 ? 'on' : ''}">四麻</button><button data-mode="3" class="${n === 3 ? 'on' : ''}">三麻</button></div></div>` : ''}
 
@@ -1266,7 +1279,12 @@
     </main>`;
 
     const rerender = () => { const y = window.scrollY; viewRuleEdit(id, fromId); window.scrollTo(0, y); };
-    $('#rname').oninput = (e) => { d.name = e.target.value; $('#editing-name').textContent = d.name.trim() || defaultName; };
+    $('#rname').oninput = (e) => {
+      d.name = e.target.value;
+      const el = $('#editing-name');
+      el.textContent = d.name.trim() || '（名前を入力してください）';
+      el.classList.toggle('unnamed', !d.name.trim());
+    };
     $$('[data-mode]').forEach((b) => b.onclick = () => {
       const m = Number(b.dataset.mode);
       if (m === d.mode) return;
@@ -1277,7 +1295,12 @@
     bindPresetLoader(d, rerender);
     bindOpts(d, n, rerender);
     $('#save').onclick = () => {
-      const name = d.name.trim() || defaultName;
+      const name = d.name.trim();
+      if (!name) {
+        $('#msg').innerHTML = '<div class="notice">ルールの名前を入れてください</div>';
+        $('#rname').focus();
+        return;
+      }
       if (nameLength(name) > RULE_NAME_MAX) {
         $('#msg').innerHTML = `<div class="notice">名前は${RULE_NAME_MAX}文字までです</div>`;
         return;
