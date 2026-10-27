@@ -538,3 +538,36 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
 .calc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .calc-split > div { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
 .calc-split .calc-who { font-size: 12px; margin: 0; }
+
+/* ===== ② 選択肢ボタンは同じ高さ（並びの中で一番高いボタンに合わせ、最低52px） ===== */
+.opts:not(.flow) { grid-auto-rows: minmax(52px, 1fr); }
+.opts .opt { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+/* ===== ④ 一覧の右側の数字欄（ラベルと数字の位置をすべての行でそろえる） ===== */
+.num-col { flex-shrink: 0; width: 112px; display: flex; flex-direction: column; gap: 2px; }
+.kv { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-variant-numeric: tabular-nums; }
+.kv .k { font-size: 11px; color: var(--muted); flex-shrink: 0; }
+.kv .v { font-size: 12px; color: var(--muted); white-space: nowrap; text-align: right; }
+.kv.big .v { font-size: 18px; font-weight: 700; color: var(--text); }
+
+/* ===== ④ 名前はどこでも「2行まで・全部表示」（高さは2行分で固定して行の高さをそろえる） ===== */
+.person-row .nm .ellipsis, .person-row .nm.ellipsis, .pname {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; white-space: normal;
+  overflow: hidden; word-break: break-all; line-height: 1.3; height: 2.6em; text-overflow: clip;
+}
+.score-table .th-name { -webkit-line-clamp: 2; max-height: 2.5em; height: 2.5em; font-size: 10px; }
+/* ===== ⑦ 対局画面のボタン：主な操作（緑）・その他（白）・削除（赤文字）の3種類 ===== */
+.chip-link { width: 100%; margin-top: 12px; }
+.info-card .info-row { display: grid; grid-template-columns: 52px 1fr; gap: 8px; padding: 6px 0; font-size: 14px; border-bottom: 1px solid var(--line); }
+.info-card .info-row .k { color: var(--muted); font-size: 12px; padding-top: 2px; }
+.info-card .btn-row { margin-top: 12px; }
+.btn.danger { border-color: var(--line); background: var(--card); }
+.add-player-btn { width: 100%; margin-top: 10px; }
+/* タイル：アイコン（中40px）＋名前2行が必ず入る高さ。名前は縮ませない */
+.ptile { height: 92px; }
+.ptile-name, .s-name, .pname, .th-name { flex-shrink: 0; }
+/* 一覧：名前の欄を広く取る（数字欄は96px、順位の数字は22px、名前は15px） */
+.num-col { width: 96px; }
+.person-row { gap: 8px; }
+.person-row .rk { width: 22px; }
+.list .person-row .nm .ellipsis, .list .person-row .nm.ellipsis, .card .person-row .pname, .card .person-row .nm .ellipsis { font-size: 15px; }

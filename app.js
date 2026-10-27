@@ -92,9 +92,12 @@
     return `<nav class="nav">${items.map(([href, ico, label, key]) =>
       `<a href="${href}" class="${key === current ? 'on' : ''}"><span class="ico">${ico}</span>${label}</a>`).join('')}</nav>`;
   }
-  function avatar(p, size = 36) {
+  // アイコンの大きさは3段階だけ：小（表・対局の記録）28px／中（一覧・タイル）40px／大（プロフィール）80px
+  const AVATAR_SIZES = [28, 40, 80];
+  function avatar(p, size = 40) {
     const src = p.photo || (p.icon ? `icons/${p.icon}.svg` : '');
-    const style = `width:${size}px;height:${size}px`;
+    const px = size <= 30 ? AVATAR_SIZES[0] : size <= 50 ? AVATAR_SIZES[1] : AVATAR_SIZES[2];
+    const style = `width:${px}px;height:${px}px`;
     if (src) return `<img class="avatar" style="${style}" src="${src}" alt="">`;
     return `<span class="avatar blank" style="${style}"></span>`;
   }
@@ -102,6 +105,12 @@
     const used = new Set(db.players.map((p) => p.icon));
     return (ICONS.find(([k]) => !used.has(k)) || ICONS[db.players.length % ICONS.length])[0];
   }
+  // 一覧の右側の数字欄：「ラベル  数字」を、どの行でもラベルは左端・数字は右端にそろえて並べる
+  // rows: [[ラベル, 数字のHTML, 大きく出すか]]
+  function numCol(rows) {
+    return `<div class="num-col">${rows.map(([label, value, big]) => `<div class="kv ${big ? 'big' : ''}"><span class="k">${label}</span><span class="v">${value}</span></div>`).join('')}</div>`;
+  }
+
   // 人を選ぶタイル（4列で並べる。どの画面でも同じ見た目）
   // items: [{ p: プレイヤー, attr: 'data-xxx="id"', on: 選択中か, badge: 右上の小さな文字 }]。attr が無いと押せない表示だけ
   function playerTiles(items) {
@@ -351,11 +360,8 @@
       ${db.players.length ? playerTiles(db.players.map((p) => {
         const i = newState.selected.indexOf(p.id);
         return { p, attr: `data-pid="${p.id}"`, on: i >= 0, badge: i < 0 ? '' : i < n ? SEAT_NAMES[i] : '交代' };
-      })) : '<p class="muted">プレイヤーが未登録です。下から追加してください。</p>'}
-      <form id="quick-add" class="inline" style="margin-top:10px">
-        <input class="input" name="name" placeholder="プレイヤーを追加（${NAME_MAX}文字まで）" autocomplete="off">
-        <button class="btn">追加</button>
-      </form>
+      })) : '<p class="muted">プレイヤーが未登録です。下のボタンから登録してください。</p>'}
+      <button type="button" id="new-player" class="btn add-player-btn">＋ 新しいプレイヤーを登録</button>
 
       <h2>ルール</h2>
       ${mineRules.length ? `<div class="opts flow">${mineRules.map(ruleBtn).join('')}</div>` : ''}
@@ -405,12 +411,9 @@
       else if (newState.selected.length < MEMBER_MAX) newState.selected.push(id);
       rerender();
     });
-    $('#quick-add').onsubmit = (e) => {
-      e.preventDefault();
-      const p = addPlayer(e.target.name.value);
-      if (p && newState.selected.length < MEMBER_MAX) newState.selected.push(p.id);
-      rerender();
-    };
+    $('#new-player').onclick = () => openPlayerCreate('#/new', (pid) => {
+      if (newState.selected.length < MEMBER_MAX) newState.selected.push(pid);
+    });
     $$('[data-rule]').forEach((b) => b.onclick = () => { pickRule(findRule(b.dataset.rule)); rerender(); });
     $('#toggle-detail').onclick = () => { newState.open = !newState.open; rerender(); };
     bindOpts(rv, n, rerender);
@@ -507,7 +510,7 @@
     app.innerHTML = `${header(s.name || fmtDate(s.date), '#/')}
     <main>
 
-      <div class="h2-row"><h2>半荘の結果（${s.games.length}回）</h2>${s.playerIds.length < MEMBER_MAX ? `<a class="btn small" href="#/session/${s.id}/members">＋ メンバーを追加</a>` : ''}</div>
+      <h2>半荘の結果（${s.games.length}回）</h2>
       <div class="card">${s.games.length ? gameTable : '<p class="empty" style="padding:8px 0">まだ半荘の記録がありません</p>'}</div>
 
       <h2>今日の結果${showSettle ? `（精算 ＝ 合計 × ${esc(rateLabel(s.rule.rate))}）` : ''}</h2>
@@ -516,18 +519,26 @@
           <span class="rk">${i + 1}</span>${avatar(getPlayer(r.pid), 36)}
           <div class="nm"><div class="pname">${esc(playerName(r.pid))}</div>
             <div class="cell-sub breakdown">${breakdown(r)}</div></div>
-          <div class="total-col">
-            <div class="big-pt ${ptClass(showSettle ? r.settle10 : r.total10)}">${showSettle ? formatSettle(r.settle10) : formatPt(r.total10)}</div>
-            ${showSettle ? `<div class="muted small">合計 ${formatPt(r.total10)} ×${s.rule.rate}</div>` : useChips ? '<div class="muted small">合計</div>' : ''}</div>
+          ${showSettle
+            ? numCol([['精算', `<span class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</span>`, true], ['合計', `${formatPt(r.total10)} ×${s.rule.rate}`]])
+            : numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true]])}
         </div>`).join('') : '<p class="empty" style="padding:8px 0">半荘の結果を入力すると、ここに順位と精算が出ます</p>'}
-        ${useChips ? `<a class="btn small chip-link" href="#/session/${s.id}/chips">🪙 チップを入力${chipEntered ? '（入力済み）' : ''}</a>
+        ${useChips ? `<a class="btn chip-link" href="#/session/${s.id}/chips">チップを入力${chipEntered ? '（入力済み）' : ''}</a>
           <p class="muted" style="margin:6px 0 0">チップは最後に手元の枚数を数えて入力します（1枚 = ${s.rule.chipPt}pt）</p>` : ''}
       </div>
 
 
-      <div class="rule-foot muted">${s.name ? `${fmtDate(s.date)}　` : ''}<button type="button" id="rename-session" class="link-btn">✎ 対局の名前を${s.name ? '変更' : '付ける'}</button></div>
-      <div class="rule-foot muted" style="margin-top:6px"><b>ルール：${esc(s.ruleName || 'カスタム')}</b>（${n === 4 ? '四麻' : '三麻'}）<br>${esc(ruleSummary(s.rule))}</div>
-      <button id="del-session" class="btn danger" style="width:100%;margin-top:12px">この対局を削除</button>
+      <h2>この対局について</h2>
+      <div class="card info-card">
+        <div class="info-row"><span class="k">名前</span><span>${s.name ? esc(s.name) : '（なし）'}</span></div>
+        <div class="info-row"><span class="k">日付</span><span>${fmtDate(s.date)}</span></div>
+        <div class="info-row"><span class="k">ルール</span><span>${esc(s.ruleName || 'カスタム')}（${n === 4 ? '四麻' : '三麻'}）<br><span class="muted small">${esc(ruleSummary(s.rule))}</span></span></div>
+        <div class="btn-row">
+          <button type="button" id="rename-session" class="btn">名前を${s.name ? '変更' : '付ける'}</button>
+          ${s.playerIds.length < MEMBER_MAX ? `<a class="btn" href="#/session/${s.id}/members">メンバーを追加</a>` : ''}
+        </div>
+      </div>
+      <button id="del-session" class="btn danger" style="width:100%;margin-top:16px">この対局を削除</button>
       <a class="btn primary big sticky-bottom" href="#/session/${s.id}/game/new">＋ ${s.games.length + 1}半荘目の結果を入力</a>
     </main>`;
 
@@ -586,11 +597,8 @@
       ${full ? `<div class="notice">メンバーは${MEMBER_MAX}人までです</div>` : `
       <h2>追加する人をタップ</h2>
       ${others.length ? playerTiles(others.map((p) => ({ p, attr: `data-add="${p.id}"` })))
-        : '<p class="muted">登録済みのプレイヤーは全員参加しています。下から新しく追加できます。</p>'}
-      <form id="quick-add" class="inline" style="margin-top:10px">
-        <input class="input" name="name" placeholder="新しいプレイヤー（${NAME_MAX}文字まで）" autocomplete="off">
-        <button class="btn">追加</button>
-      </form>`}
+        : '<p class="muted">登録済みのプレイヤーは全員参加しています。下のボタンから新しく登録できます。</p>'}
+      <button type="button" id="new-player" class="btn add-player-btn">＋ 新しいプレイヤーを登録</button>`}
       <a class="btn primary big" style="margin-top:20px" href="#/session/${s.id}">完了</a>
     </main>`;
 
@@ -601,12 +609,10 @@
       viewAddMember(id);
     };
     $$('[data-add]').forEach((b) => b.onclick = () => join(b.dataset.add));
-    const f = $('#quick-add');
-    if (f) f.onsubmit = (e) => {
-      e.preventDefault();
-      const p = addPlayer(e.target.name.value);
-      if (p) join(p.id);
-    };
+    const nb = $('#new-player');
+    if (nb) nb.onclick = () => openPlayerCreate(`#/session/${s.id}/members`, (pid) => {
+      if (!s.playerIds.includes(pid) && s.playerIds.length < MEMBER_MAX) s.playerIds.push(pid);
+    });
   }
 
   // ---------- チップ入力 ----------
@@ -887,7 +893,7 @@
         <span class="rk">${i + 1}</span>${avatar(getPlayer(st.pid), 40)}
         <div class="nm"><div class="ellipsis">${esc(playerName(st.pid))}</div>
           <div class="cell-sub nowrap-parts"><span>${st.games}半荘・平均${st.avgRank.toFixed(2)}位</span> <span>トップ${formatPct(st.ranks[0] / st.games)}・ラス${formatPct(lastRankRate(st, n))}</span></div></div>
-        <div class="total-col"><div class="big-pt ${ptClass(st.total10)}">${formatPt(st.total10)}</div>${st.hasSettle ? `<div class="settle">精算 <b class="${ptClass(st.settle10)}">${formatSettle(st.settle10)}</b></div>` : ''}</div>
+        ${numCol([['総合', `<span class="${ptClass(st.total10)}">${formatPt(st.total10)}</span>`, true], ...(st.hasSettle ? [['精算', `<span class="${ptClass(st.settle10)}">${formatSettle(st.settle10)}</span>`]] : [])])}
       </a></li>`).join('')}</ul>
       <p class="muted">総合pt ＝ 半荘のpt（飛び賞込み）＋ チップ。名前をタップすると詳しい成績が見られます。</p>`
         : `<p class="empty">この条件の${n === 4 ? '四麻' : '三麻'}の記録はまだありません</p>`}
@@ -997,14 +1003,11 @@
     return null;
   }
 
-  function addPlayer(name) {
-    name = (name || '').trim();
-    const err = validateName(name);
-    if (err) { if (name) alert(err); return null; }
-    const p = { id: uid(), name, icon: nextIcon(), photo: null };
-    db.players.push(p);
-    save();
-    return p;
+  // プレイヤーの登録はどこからでも同じ画面で行う。登録が終わったら元の画面に戻り、onCreate で選択などを反映する
+  let playerReturn = null; // { back: 戻る画面, onCreate(pid) }
+  function openPlayerCreate(back, onCreate) {
+    playerReturn = { back, onCreate };
+    location.hash = '#/players/new';
   }
 
   function viewPlayers() {
@@ -1049,7 +1052,8 @@
     const d = playerDraft;
     const used = !isNew && usedPlayerIds().has(pid);
 
-    app.innerHTML = `${header(isNew ? 'プレイヤーを追加' : 'プレイヤーを編集', '#/players')}
+    const backTo = isNew && playerReturn ? playerReturn.back : '#/players';
+    app.innerHTML = `${header(isNew ? 'プレイヤーを追加' : 'プレイヤーを編集', backTo)}
     <main>
       <div class="profile">${avatar(d, 96)}</div>
       <div class="field">
@@ -1099,11 +1103,15 @@
       const name = d.name.trim();
       const err = validateName(name, isNew ? null : pid);
       if (err) { $('#msg').innerHTML = `<div class="notice">${esc(err)}</div>`; return; }
-      if (isNew) db.players.push({ id: uid(), name, icon: d.icon, photo: d.photo });
+      const newId = uid();
+      if (isNew) db.players.push({ id: newId, name, icon: d.icon, photo: d.photo });
       else Object.assign(p, { name, icon: d.icon, photo: d.photo });
+      const ret = isNew ? playerReturn : null;
+      if (ret) ret.onCreate(newId);
       if (!save()) return;
       playerDraft = null;
-      location.hash = '#/players';
+      playerReturn = null;
+      location.hash = ret ? ret.back : '#/players';
     };
     if (!isNew && !used) {
       $('#del').onclick = () => {
@@ -1221,7 +1229,7 @@
     window.scrollTo(0, 0);
     customOpen.clear();
     if (parts[0] !== 'session' || parts[2] !== 'game') form = null;
-    if (parts[0] !== 'players' || !parts[1]) playerDraft = null;
+    if (parts[0] !== 'players' || !parts[1]) { playerDraft = null; playerReturn = null; }
     if (parts[0] !== 'rules' || !parts[1]) ruleDraft = null;
     if (parts[0] === 'stats' && parts[1]) return viewStatsDetail(parts[1]);
     if (parts[0] === 'stats') return viewStats();
