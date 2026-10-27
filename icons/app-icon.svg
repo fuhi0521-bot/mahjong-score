@@ -1,10 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- アプリのアイコン：緑の卓に「中」の牌 -->
+  <!-- アプリのアイコン：緑の卓に「中」の牌と「簡」の印 -->
   <rect width="512" height="512" rx="112" fill="#1f6b47"/>
-  <rect x="146" y="92" width="220" height="300" rx="34" fill="#c9d9cf"/>
-  <rect x="146" y="80" width="220" height="300" rx="34" fill="#fffaf0" stroke="#e8dcc4" stroke-width="6"/>
-  <g stroke="#d6332f" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <rect x="196" y="168" width="120" height="96" rx="10"/>
-    <line x1="256" y1="120" x2="256" y2="336"/>
-  </g>
+  <rect x="146" y="92" width="220" height="300" rx="34" fill="#c9d9cf"/><rect x="146" y="80" width="220" height="300" rx="34" fill="#fffaf0" stroke="#e8dcc4" stroke-width="6"/><g stroke="#d6332f" stroke-width="30" stroke-linecap="round" stroke-linejoin="round" fill="none"><rect x="196" y="168" width="120" height="96" rx="10"/><line x1="256" y1="120" x2="256" y2="336"/></g><circle cx="388" cy="112" r="64" fill="#d6332f" stroke="#1f6b47" stroke-width="10"/><text x="388" y="142" text-anchor="middle" font-size="84" fill="#fff" font-family="Hiragino Sans, Hiragino Kaku Gothic ProN, sans-serif" font-weight="800">簡</text>
 </svg>
