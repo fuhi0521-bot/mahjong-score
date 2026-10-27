@@ -10,6 +10,8 @@
     ['cat', '猫'], ['dog', '犬'], ['rabbit', 'ウサギ'], ['bear', 'クマ'],
   ];
   const ICON_KEYS = ICONS.map(([k]) => k);
+  // iPhoneアプリ版では画像をアプリの中に埋め込んでいる（window.ICON_DATA）。Web版は icons/ フォルダから読む
+  const iconSrc = (key) => (window.ICON_DATA && window.ICON_DATA[key]) || `icons/${key}.svg`;
   const RULE_NAME_MAX = 12;
   const MEMBER_MAX = 8;
   const SESSION_NAME_MAX = 12; // 一番小さいiPhone（幅320px）でも見出しに1行で収まる長さ
@@ -95,7 +97,7 @@
   // アイコンの大きさは3段階だけ：小（表・対局の記録）28px／中（一覧・タイル）40px／大（プロフィール）80px
   const AVATAR_SIZES = [28, 40, 80];
   function avatar(p, size = 40) {
-    const src = p.photo || (p.icon ? `icons/${p.icon}.svg` : '');
+    const src = p.photo || (p.icon ? iconSrc(p.icon) : '');
     const px = size <= 30 ? AVATAR_SIZES[0] : size <= 50 ? AVATAR_SIZES[1] : AVATAR_SIZES[2];
     const style = `width:${px}px;height:${px}px`;
     if (src) return `<img class="avatar" style="${style}" src="${src}" alt="">`;
@@ -1094,7 +1096,7 @@
       </div>
 
       <h2>アイコン${d.photo ? '（写真をやめると使われます）' : ''}</h2>
-      <div class="icon-grid">${ICONS.map(([key, label]) => `<button class="icon-btn ${d.icon === key ? 'on' : ''}" data-icon="${key}" aria-label="${label}"><img src="icons/${key}.svg" alt=""></button>`).join('')}</div>
+      <div class="icon-grid">${ICONS.map(([key, label]) => `<button class="icon-btn ${d.icon === key ? 'on' : ''}" data-icon="${key}" aria-label="${label}"><img src="${iconSrc(key)}" alt=""></button>`).join('')}</div>
 
       <div id="msg"></div>
       <button id="save" class="btn primary big">${isNew ? '追加する' : '保存する'}</button>
