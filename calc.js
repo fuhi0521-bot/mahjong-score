@@ -88,7 +88,7 @@
     return ((rule.ret - rule.start) * n) / 100;
   }
 
-  // seats: [{ pid, score }] 起家（東）から順に並べたもの
+  // seats: [{ pid, score }]。同点のときは並びが先の人を上位にする（起家に近い順に並べておく）
   // tobiBy: 飛ばした人の pid（いなければ null）
   // 戻り値: 順位順の配列 [{ pid, score, seat, rank, pt10, busted, tobi10 }]
   function calcGame(seats, rule, tobiBy) {

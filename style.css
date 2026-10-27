@@ -571,3 +571,17 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
 .person-row { gap: 8px; }
 .person-row .rk { width: 22px; }
 .list .person-row .nm .ellipsis, .list .person-row .nm.ellipsis, .card .person-row .pname, .card .person-row .nm .ellipsis { font-size: 15px; }
+/* 点数入力の行：アイコン＋名前＋点数（席なし） */
+.seat-row { grid-template-columns: 44px 1fr; }
+.seat-who .pname { font-size: 15px; font-weight: 600; }
+.tie-card { margin-top: 10px; border-color: var(--accent); }
+
+/* ===== ① 選ぶボタンは用途で3種類（Apple・Googleのデザイン指針に合わせる） =====
+   A. 切り替え（.seg）     … 2〜5個の短い選択肢：四麻/三麻、子/親、ロン/ツモ、成績の期間
+   B. 四角いボタン（.opts）… 5個より多い・文字が長い選択肢：ルール、ウマ、翻・符、飛ばした人
+   D. 候補（.name-suggest）… 前に使った名前などの「候補」 */
+.seg { min-height: 44px; }
+.seg button { min-height: 44px; }
+.opts.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.opts.cols2 .opt { white-space: normal; }
+.seat-row:last-child { border-bottom: 1px solid transparent; }

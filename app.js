@@ -355,18 +355,18 @@
       </div>
 
       <h2>メンバー（${count}人）</h2>
-      <p class="muted" style="margin:0 0 8px">タップした順に最初の席（東→南→西${n === 4 ? '→北' : ''}）が決まります。${n + 1}人以上（最大${MEMBER_MAX}人）選ぶと、半荘ごとに交代しながら打てます。</p>
+      <p class="muted" style="margin:0 0 8px">${n + 1}人以上（最大${MEMBER_MAX}人）選ぶと、半荘ごとに交代しながら打てます。最初の半荘は、先にタップした${n}人が打ちます。</p>
       ${canUseLast ? '<button id="use-last" class="btn small" style="margin-bottom:8px">前回と同じメンバー</button>' : ''}
       ${db.players.length ? playerTiles(db.players.map((p) => {
         const i = newState.selected.indexOf(p.id);
-        return { p, attr: `data-pid="${p.id}"`, on: i >= 0, badge: i < 0 ? '' : i < n ? SEAT_NAMES[i] : '交代' };
+        return { p, attr: `data-pid="${p.id}"`, on: i >= 0, badge: i < 0 ? '' : i < n ? '✓' : '交代' };
       })) : '<p class="muted">プレイヤーが未登録です。下のボタンから登録してください。</p>'}
       <button type="button" id="new-player" class="btn add-player-btn">＋ 新しいプレイヤーを登録</button>
 
       <h2>ルール</h2>
-      ${mineRules.length ? `<div class="opts flow">${mineRules.map(ruleBtn).join('')}</div>` : ''}
+      ${mineRules.length ? `<div class="opts cols2">${mineRules.map(ruleBtn).join('')}</div>` : ''}
       ${showPresets ? `${mineRules.length ? '<div class="label" style="margin-top:10px">おすすめ</div>' : ''}
-        <div class="opts flow">${presets.map(ruleBtn).join('')}</div>`
+        <div class="opts cols2">${presets.map(ruleBtn).join('')}</div>`
         : '<button type="button" id="show-presets" class="btn small" style="margin-top:8px">おすすめから選ぶ ▼</button>'}
       <div class="card rule-now">
         <div class="rule-name">${newState.creating ? '新しいルール（作成中）' : matched ? esc(matched.name) : 'カスタム（変更あり）'}</div>
@@ -692,6 +692,8 @@
           return { pid, text: sc == null ? '' : String(Math.abs(sc) / 100), neg: sc != null && sc < 0 };
         }),
         tobiBy: existing ? existing.tobiBy : null,
+        // 同点のときの順番（起家に近い順）。修正のときは保存済みの並びを使う
+        tieOrder: existing ? existing.seats.map((x) => x.pid) : [],
       };
     }
 
@@ -701,7 +703,7 @@
       ${rotating ? `<h2 style="margin-top:4px">打つ人（${form.seats.length}/${n}人）</h2>
       ${playerTiles(s.playerIds.map((pid) => {
         const i = form.seats.findIndex((x) => x.pid === pid);
-        return { p: getPlayer(pid), attr: `data-play="${pid}"`, on: i >= 0, badge: i >= 0 ? SEAT_NAMES[i] : '' };
+        return { p: getPlayer(pid), attr: `data-play="${pid}"`, on: i >= 0, badge: i >= 0 ? '✓' : '' };
       }))}
       <p class="muted" style="margin:6px 0 0">${existing ? 'タップで入れ替えられます' : '前の半荘で抜けた人を優先して入れています。タップで入れ替えられます'}</p>
       ${form.seats.length < n ? `<div class="notice">あと${n - form.seats.length}人選んでください</div>` : ''}
@@ -709,19 +711,18 @@
       <div class="muted">最終点数を100点単位で入力します（例: 42,300点 → 423）。マイナスのときは「−」を押してから入力。最後の1人は「自動計算」ボタンで入れられます。</div>
       <div class="card" style="margin-top:8px">
         ${form.seats.map((st, i) => `<div class="seat-row">
-          <div class="seat-col"><span class="seat-name">${SEAT_NAMES[i]}</span>${avatar(getPlayer(st.pid), 34)}</div>
-          <div class="seat-who">
-            <select class="input" data-seat="${i}" aria-label="${SEAT_NAMES[i]}家の人">${(rotating ? form.seats.map((x) => x.pid) : s.playerIds).map((pid) => `<option value="${pid}" ${pid === st.pid ? 'selected' : ''}>${esc(playerName(pid))}</option>`).join('')}</select>
-          </div>
+          <div class="seat-col">${avatar(getPlayer(st.pid), 40)}</div>
+          <div class="seat-who"><span class="pname">${esc(playerName(st.pid))}</span></div>
           <div class="score-box">
             <button class="sign ${st.neg ? 'neg' : ''}" data-sign="${i}" aria-label="マイナス切り替え">−</button>
-            <input class="input" data-score="${i}" type="text" inputmode="numeric" pattern="[0-9]*" value="${esc(st.text)}" placeholder="0" autocomplete="off" aria-label="${SEAT_NAMES[i]}家の点数">
+            <input class="input" data-score="${i}" type="text" inputmode="numeric" pattern="[0-9]*" value="${esc(st.text)}" placeholder="0" autocomplete="off" aria-label="${esc(playerName(st.pid))}の点数">
             <span class="suffix">00</span>
           </div>
           <div class="auto" data-auto="${i}"></div>
         </div>`).join('')}
       </div>
       <div id="check"></div>
+      <div id="tie"></div>
       <div id="tobi"></div>
       <h2>結果</h2>
       <div class="card" id="preview"></div>
@@ -740,13 +741,6 @@
       viewGame(sid, gid);
       window.scrollTo(0, y);
     });
-    // 席の入れ替え（同じ人を選んだら入れ替える）
-    $$('[data-seat]').forEach((sel) => sel.onchange = () => {
-      const i = Number(sel.dataset.seat);
-      const j = form.seats.findIndex((x) => x.pid === sel.value);
-      if (j >= 0 && j !== i) [form.seats[i], form.seats[j]] = [form.seats[j], form.seats[i]];
-      viewGame(sid, gid);
-    });
     $$('[data-sign]').forEach((b) => b.onclick = () => {
       const st = form.seats[Number(b.dataset.sign)];
       st.neg = !st.neg;
@@ -764,6 +758,22 @@
       inp.oninput = (e) => { if (!e.isComposing) normalizeScore(inp); };
       inp.addEventListener('compositionend', () => normalizeScore(inp));
     });
+
+    // 同じ点数の人のまとまり（2人以上）を返す。中身は form.seats の番号
+    function tieGroups(vals) {
+      const by = {};
+      vals.forEach((v, i) => { (by[v] = by[v] || []).push(i); });
+      return Object.values(by).filter((g) => g.length > 1);
+    }
+    // 計算・保存に使う並び。同点の人どうしは選んだ順（起家に近い順）にする
+    function orderedSeats(vals) {
+      const list = form.seats.map((st, i) => ({ pid: st.pid, score: vals[i] }));
+      for (const g of tieGroups(vals)) {
+        const sorted = g.map((i) => list[i]).sort((a, b) => form.tieOrder.indexOf(a.pid) - form.tieOrder.indexOf(b.pid));
+        g.forEach((i, k) => { list[i] = sorted[k]; });
+      }
+      return list;
+    }
 
     function currentScores() {
       const total = expectedTotal(s.rule, n);
@@ -815,14 +825,29 @@
         $('#tobi').innerHTML = '';
       }
 
-      const ok = complete && diff === 0;
+      // 同点の人がいるときだけ、起家に近い順を選んでもらう（同点は起家に近い人が上位＝上家取り）
+      const groups = complete && diff === 0 ? tieGroups(vals) : [];
+      const tieDone = groups.every((g) => g.every((i) => form.tieOrder.includes(form.seats[i].pid)));
+      $('#tie').innerHTML = groups.length ? `<div class="card tie-card">${groups.map((g) => {
+        const order = form.tieOrder.filter((pid) => g.some((i) => form.seats[i].pid === pid));
+        return `<div class="label" style="margin-bottom:6px">${formatScore(vals[g[0]])}点で同点です。<b>起家（東）に近い順</b>にタップしてください</div>
+          ${playerTiles(g.map((i) => { const pid = form.seats[i].pid; const k = order.indexOf(pid); return { p: getPlayer(pid), attr: `data-tie="${pid}"`, on: k >= 0, badge: k >= 0 ? String(k + 1) : '' }; }))}`;
+      }).join('<div style="height:10px"></div>')}</div>` : '';
+      $$('[data-tie]').forEach((b) => b.onclick = () => {
+        const pid = b.dataset.tie;
+        form.tieOrder = form.tieOrder.includes(pid) ? form.tieOrder.filter((x) => x !== pid) : [...form.tieOrder, pid];
+        update();
+      });
+
+      const ok = complete && diff === 0 && tieDone;
       $('#save').disabled = !ok;
       if (!ok) {
         $('#preview').innerHTML = `<p class="muted" style="margin:0">${form.seats.length !== n ? `打つ人を${n}人選んでください`
-          : complete ? '合計が合うと、順位とポイントが表示されます' : `${n}人全員の点数を入れると、順位とポイントが表示されます`}</p>`;
+          : !complete ? `${n}人全員の点数を入れると、順位とポイントが表示されます`
+          : diff !== 0 ? '合計が合うと、順位とポイントが表示されます' : '同点の人の順番を選ぶと、順位とポイントが表示されます'}</p>`;
         return;
       }
-      const results = calcGame(form.seats.map((st, i) => ({ pid: st.pid, score: vals[i] })), s.rule, form.tobiBy);
+      const results = calcGame(orderedSeats(vals), s.rule, form.tobiBy);
       $('#preview').innerHTML = results.map((r) => `<div class="person-row">
         <span class="rk">${r.rank}位</span>${avatar(getPlayer(r.pid), 32)}
         <div class="nm"><div class="ellipsis">${esc(playerName(r.pid))}</div><div class="cell-sub">${formatScore(r.score)}点${r.tobi10 ? `（飛び賞 ${formatPt(r.tobi10)}）` : ''}</div></div>
@@ -834,7 +859,7 @@
       const { vals } = currentScores();
       const game = {
         id: existing ? existing.id : uid(),
-        seats: form.seats.map((st, i) => ({ pid: st.pid, score: vals[i] })),
+        seats: orderedSeats(vals), // 並び順＝同点のときの優先順
         tobiBy: form.tobiBy,
         createdAt: existing ? existing.createdAt : Date.now(),
       };
@@ -874,7 +899,7 @@
   function statsFilters() {
     const m = statsState.mode;
     return `<div class="seg" style="margin-bottom:8px"><button data-smode="4" class="${m === 4 ? 'on' : ''}">四麻</button><button data-smode="3" class="${m === 3 ? 'on' : ''}">三麻</button></div>
-      <div class="opts period">${PERIODS.map(([k, label]) => `<button type="button" class="opt ${statsState.period === k ? 'on' : ''}" data-period="${k}">${label}</button>`).join('')}</div>`;
+      <div class="seg">${PERIODS.map(([k, label]) => `<button type="button" class="${statsState.period === k ? 'on' : ''}" data-period="${k}">${label}</button>`).join('')}</div>`;
   }
   function bindStatsFilters(rerender) {
     $$('[data-smode]').forEach((b) => b.onclick = () => { statsState.mode = Number(b.dataset.smode); rerender(); });
