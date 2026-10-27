@@ -4,6 +4,9 @@
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
     baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary } = MJ;
 
+  // ズーム禁止：ブラウザの Safari は viewport の user-scalable=no を無視するため、2本指の拡大も止める
+  ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+
   // 初期アイコン（icons/*.svg、このアプリ用に作成）
   const ICONS = [
     ['boy1', '男の子（黒髪）'], ['girl1', '女の子（ロング）'], ['boy2', '男の子（茶髪）'], ['girl2', '女の子（ツインテール）'],

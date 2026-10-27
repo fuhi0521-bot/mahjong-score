@@ -609,3 +609,7 @@ body { overflow-x: clip; }
 .rule-name.unnamed { color: var(--muted); font-weight: 500; font-size: 15px; }
 /* 細かい設定（テンリャンピン等の最後の行）と、その下のボタン・カードの間をあける */
 .detail { margin-bottom: 20px; }
+
+/* ズーム禁止：ダブルタップでの拡大を止め、入力欄を押したときの自動拡大（16px未満で起きる）も防ぐ */
+html { touch-action: manipulation; }
+input, select, textarea { font-size: 16px; }
