@@ -587,3 +587,10 @@ tr.total td { font-weight: 700; border-top: 2px solid var(--line); border-bottom
 .seat-row:last-child { border-bottom: 1px solid transparent; }
 /* 点数計算の4列ボタン：一番小さいiPhoneでも「数え役満」「トリプル」が1行に入る文字の大きさ */
 .opts.grid4 .opt { font-size: 14px; padding: 4px 1px; white-space: nowrap; }
+/* マイルールの作成・編集：どのルールを編集しているかを上に固定して表示 */
+.editing-card { position: sticky; top: calc(48px + env(safe-area-inset-top)); z-index: 5; background: var(--accent-soft); border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.editing-card .rule-name { font-size: 17px; margin-top: 2px; }
+.preset-loader { margin: 8px 0 4px; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; background: var(--card); }
+.preset-loader summary { margin-bottom: 0; }
+.preset-loader[open] summary { margin-bottom: 8px; }
+.creating-note { font-size: 14px; border-color: var(--accent); }

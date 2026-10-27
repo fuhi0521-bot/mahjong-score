@@ -181,6 +181,30 @@
       ${termLabel('chipPt', tag)}${optButtons('chipPt', OPTIONS.chipPt, v.chipPt, chipLabel, null, CHIP_CUSTOM)}
       ${termLabel('rate', tag)}${optButtons('rate', OPTIONS.rate, v.rate, rateLabel, null, RATE_CUSTOM)}`;
   }
+  // おすすめのルールの「内容を読み込む」部品。選んでいる状態（緑）にはしない＝どのルールを編集中か紛らわしくしない
+  let presetLoadedMsg = '';
+  function presetLoader(n) {
+    return `<details class="help preset-loader"><summary><div class="help-title">おすすめのルールの内容を読み込む</div><span class="q">▼</span></summary>
+      <p>選んだおすすめの内容で、下の項目をまとめて置き換えます。ルールの名前は変わりません。</p>
+      <div class="opts cols2">${PRESETS.filter((r) => r.mode === n).map((r) => `<button type="button" class="opt" data-load-preset="${r.id}">${esc(r.name)}</button>`).join('')}</div>
+    </details>`;
+  }
+  function bindPresetLoader(target, rerender) {
+    $$('[data-load-preset]').forEach((b) => b.onclick = () => {
+      const p = PRESETS.find((r) => r.id === b.dataset.loadPreset);
+      if (!confirm(`「${p.name}」の内容で、今の設定を置き換えますか？`)) return;
+      Object.assign(target, { start: p.start, ret: p.ret, uma: [...p.uma], tobiPt: p.tobiPt, chipPt: p.chipPt, rate: p.rate });
+      customOpen.clear();
+      presetLoadedMsg = `「${p.name}」の内容を読み込みました（名前は変わっていません）`;
+      rerender();
+    });
+  }
+  function takeLoadedMsg() {
+    const m = presetLoadedMsg;
+    presetLoadedMsg = '';
+    return m ? `<div class="sum-check ok">${esc(m)}</div>` : '';
+  }
+
   // 初めての人向けの「迷ったらこれ」
   const RECOMMENDED = { 4: 'mleague', 3: 'sanma' };
 
@@ -199,6 +223,8 @@
   }
 
   function viewHome() {
+    // ホームに戻ったら、作りかけのルールは破棄して次回は通常の選択から始める
+    if (newState.creating) Object.assign(newState, { creating: false, open: false, rule: null, saveRule: false, saveName: '' });
     const sessions = [...db.sessions].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
     app.innerHTML = `${header('麻雀スコア')}
     <main>
@@ -384,22 +410,26 @@
       <button type="button" id="new-player" class="btn add-player-btn">＋ 新しいプレイヤーを登録</button>
 
       <h2>ルール</h2>
+      ${newState.creating ? `<div class="card creating-note">新しいルールを作っています。今あるルールを使うときは「作成をやめる」を押してください。
+        <button type="button" id="cancel-create" class="btn" style="width:100%;margin-top:8px">作成をやめる</button></div>` : `
       ${mineRules.length ? `<div class="opts cols2">${mineRules.map(ruleBtn).join('')}</div>` : ''}
       ${showPresets ? `${mineRules.length ? '<div class="label" style="margin-top:10px">おすすめ</div>' : ''}
         <div class="opts cols2">${presets.map(ruleBtn).join('')}</div>`
-        : '<button type="button" id="show-presets" class="btn small" style="margin-top:8px">おすすめから選ぶ ▼</button>'}
+        : '<button type="button" id="show-presets" class="btn small" style="margin-top:8px">おすすめから選ぶ ▼</button>'}`}
       <div class="card rule-now">
-        <div class="rule-name">${newState.creating ? '新しいルール（作成中）' : matched ? esc(matched.name) : 'カスタム（変更あり）'}</div>
-        ${matched && matched.desc ? `<div class="rule-desc">${esc(matched.desc)}</div>` : ''}
+        <div class="muted small">${newState.creating ? '作成中のルール' : '使うルール'}</div>
+        <div class="rule-name" id="now-name">${newState.creating ? esc(newState.saveName.trim() || defaultSaveName) : matched ? esc(matched.name) : 'カスタム（変更あり）'}</div>
+        ${matched && matched.desc && !newState.creating ? `<div class="rule-desc">${esc(matched.desc)}</div>` : ''}
         <div class="rule-sum">${esc(ruleSummary(rv))}</div>
       </div>
+      ${takeLoadedMsg()}
       <div class="inline">
         <button type="button" id="toggle-detail" class="btn small">${newState.open ? '▲ 閉じる' : '▼ 細かく変える'}</button>
         ${newState.creating ? '' : '<button type="button" id="create-rule" class="btn small">＋ 新しいルールを作る</button>'}
       </div>
 
       ${newState.open ? `<div class="detail">
-        ${newState.creating ? '<p class="hint" style="margin:0">今のルールをもとに、各項目を選んでください。下で名前を付けて保存できます。</p>' : ''}
+        ${newState.creating ? `<p class="hint" style="margin:0 0 6px">今のルールをもとに、各項目を選んでください。下で名前を付けて保存できます。</p>${presetLoader(n)}` : ''}
         ${ruleOptions(n, rv)}
       </div>` : ''}
 
@@ -439,6 +469,9 @@
     bindOpts(rv, n, rerender);
     const showBtn = $('#show-presets');
     if (showBtn) showBtn.onclick = () => { newState.showPresets = true; rerender(); };
+    const cancelBtn = $('#cancel-create');
+    if (cancelBtn) cancelBtn.onclick = () => { pickRule(rules.find((r) => r.id === newState.ruleId) || rules[0]); newState.open = false; rerender(); };
+    bindPresetLoader(rv, rerender);
     const createBtn = $('#create-rule');
     if (createBtn) createBtn.onclick = () => {
       Object.assign(newState, { creating: true, open: true, saveRule: true, saveName: '' });
@@ -446,7 +479,10 @@
     };
     if (!matched || newState.creating) {
       $('#save-rule').onchange = (e) => { newState.saveRule = e.target.checked; rerender(); };
-      if (newState.saveRule) $('#save-name').oninput = (e) => { newState.saveName = e.target.value; };
+      if (newState.saveRule) $('#save-name').oninput = (e) => {
+        newState.saveName = e.target.value;
+        if (newState.creating) $('#now-name').textContent = newState.saveName.trim() || defaultSaveName;
+      };
     }
     $('#start').onclick = () => {
       const sessionName = newState.name.trim();
@@ -1206,30 +1242,31 @@
     const n = d.mode;
     const back = ruleReturn || '#/rules';
 
+    const defaultName = isNew ? `マイルール${db.myRules.length + 1}` : mine.name;
     app.innerHTML = `${header(isNew ? 'マイルールを作る' : 'マイルールを編集', back)}
     <main>
+      <div class="card editing-card">
+        <div class="muted small">${isNew ? '作成中のマイルール' : '編集中のマイルール'}（${n === 4 ? '四麻' : '三麻'}）</div>
+        <div class="rule-name" id="editing-name">${esc(d.name.trim() || defaultName)}</div>
+        <div class="rule-sum">${esc(ruleSummary(d))}</div>
+      </div>
+      ${takeLoadedMsg()}
+
+      <div class="field" style="margin-top:12px"><label for="rname">ルールの名前（${RULE_NAME_MAX}文字まで）</label>
+        <input id="rname" class="input" value="${esc(d.name)}" maxlength="${RULE_NAME_MAX}" placeholder="${esc(defaultName)}" autocomplete="off"></div>
       ${isNew ? `<div class="field"><span class="label">人数</span>
         <div class="seg"><button data-mode="4" class="${n === 4 ? 'on' : ''}">四麻</button><button data-mode="3" class="${n === 3 ? 'on' : ''}">三麻</button></div></div>` : ''}
 
-      <h2>おすすめから一括で選ぶ</h2>
-      <div class="opts">${PRESETS.filter((r) => r.mode === n).map((r) => {
-        const match = ['start', 'ret', 'uma', 'tobiPt', 'chipPt'].every((k) => sameArr(r[k], d[k]));
-        return `<button type="button" class="opt ${match ? 'on' : ''}" data-preset="${r.id}">${esc(r.name)}</button>`;
-      }).join('')}</div>
-
+      ${presetLoader(n)}
       <div class="detail">${ruleOptions(n, d, 'h2')}</div>
 
-      <h2>ルールの名前</h2>
-      <input id="rname" class="input" value="${esc(d.name)}" maxlength="${RULE_NAME_MAX}" placeholder="例: いつものメンツ（${RULE_NAME_MAX}文字まで）" autocomplete="off">
-
-      <div class="card" style="margin-top:16px"><div class="muted">この内容で保存します</div>${esc(ruleSummary(d))}</div>
       <div id="msg"></div>
       <button id="save" class="btn primary big">保存する</button>
       ${isNew ? '' : '<button id="del" class="btn danger" style="width:100%;margin-top:12px">このマイルールを削除</button>'}
     </main>`;
 
     const rerender = () => { const y = window.scrollY; viewRuleEdit(id, fromId); window.scrollTo(0, y); };
-    $('#rname').oninput = (e) => { d.name = e.target.value; };
+    $('#rname').oninput = (e) => { d.name = e.target.value; $('#editing-name').textContent = d.name.trim() || defaultName; };
     $$('[data-mode]').forEach((b) => b.onclick = () => {
       const m = Number(b.dataset.mode);
       if (m === d.mode) return;
@@ -1237,14 +1274,10 @@
       delete d.desc;
       rerender();
     });
-    $$('[data-preset]').forEach((b) => b.onclick = () => {
-      const p = PRESETS.find((r) => r.id === b.dataset.preset);
-      Object.assign(d, { start: p.start, ret: p.ret, uma: [...p.uma], tobiPt: p.tobiPt, chipPt: p.chipPt, rate: p.rate });
-      rerender();
-    });
+    bindPresetLoader(d, rerender);
     bindOpts(d, n, rerender);
     $('#save').onclick = () => {
-      const name = d.name.trim() || `マイルール${db.myRules.length + 1}`;
+      const name = d.name.trim() || defaultName;
       if (nameLength(name) > RULE_NAME_MAX) {
         $('#msg').innerHTML = `<div class="notice">名前は${RULE_NAME_MAX}文字までです</div>`;
         return;
