@@ -2,7 +2,7 @@
 (function () {
   const { SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
-    baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary } = MJ;
+    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary } = MJ;
 
   // ズーム禁止：ブラウザの Safari は viewport の user-scalable=no を無視するため、2本指の拡大も止める
   ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
@@ -181,7 +181,8 @@
   }
   const CHIP_CUSTOM = { before: '1枚', unit: 'pt', min: 0.1, max: 100 };
   const RATE_CUSTOM = { before: '収支は合計の ×', unit: '', min: 0.1, max: 1000 };
-  const CUSTOM_RANGE = { chipPt: CHIP_CUSTOM, rate: RATE_CUSTOM };
+  const CHIPSET_CUSTOM = { before: '1枚 収支', unit: '', min: 1, max: 10000 };
+  const CUSTOM_RANGE = { chipPt: CHIP_CUSTOM, chipSet: CHIPSET_CUSTOM, rate: RATE_CUSTOM };
 
   // 選択肢ボタンの操作を target（ルールの値）に反映する
   function bindOpts(target, n, rerender) {
@@ -192,7 +193,19 @@
       const i = Number(b.dataset.i);
       if (k === 'base') [target.start, target.ret] = OPTIONS.base[n][i];
       else if (k === 'uma') target.uma = [...OPTIONS.uma[n][i]];
+      else if (k === 'chipSet') { target.chipUnit = 'settle'; target.chipPt = OPTIONS.chipSet[i]; }
+      else if (k === 'chipPt') { target.chipUnit = 'pt'; target.chipPt = OPTIONS.chipPt[i]; }
       else target[k] = OPTIONS[k][i];
+      fixChipUnit(target);
+      rerender();
+    });
+    // チップの「ptで決める／収支で決める」。切り替えたら、よく使う数（2pt・収支50）から始める
+    $$('[data-chipunit]').forEach((b) => b.onclick = () => {
+      const u = b.dataset.chipunit;
+      if (b.disabled || (target.chipUnit || 'pt') === u) return;
+      customOpen.delete('chipPt'); customOpen.delete('chipSet');
+      target.chipUnit = u;
+      target.chipPt = u === 'settle' ? 50 : 2;
       rerender();
     });
     $$('[data-custom]').forEach((inp) => {
@@ -202,9 +215,12 @@
       inp.oninput = () => {
         const v = valid();
         $(`[data-custom-msg="${k}"]`).classList.toggle('error', v === null);
-        if (v !== null) target[k] = v;
+        if (v !== null) {
+          if (k === 'chipSet' || k === 'chipPt') target.chipUnit = k === 'chipSet' ? 'settle' : 'pt';
+          target[k === 'chipSet' ? 'chipPt' : k] = v;
+        }
       };
-      inp.onchange = () => { if (valid() !== null) rerender(); };
+      inp.onchange = () => { if (valid() !== null) { fixChipUnit(target); rerender(); } };
     });
   }
 
@@ -213,7 +229,7 @@
     base: ['持ち点・返し', '「持ち点」は最初に配られる点数。「返し」は順位点を計算するときの基準になる点数です。返しが持ち点より多いと、その差（例: 5,000点×4人＝20pt）がトップの人のボーナス「オカ」になります。'],
     uma: ['ウマ', '順位に応じてやりとりするptです。例えば「10-30」なら 1位+30、2位+10、3位−10、4位−30pt。数字が大きいほど順位の差がはっきり出ます。'],
     tobiPt: ['飛び賞', '誰かの点数が0点未満（飛び）になったとき、飛ばした人が飛んだ人からもらうptです。'],
-    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。1枚あたりのptで合計に足します。使わないなら「なし」。'],
+    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。「ptで決める」は1枚あたりのptを合計に足し、レートもかかります。「収支で決める」は1枚あたりの数を収支にそのまま足し、レートはかけません（レートを決めたときだけ選べます）。使わないなら「なし」。'],
     rate: ['レート', '合計ptにかける倍率で、1pt（1,000点）あたりの数です。テンサンは×30、テンゴは×50、テンピンは×100、テンリャンピンは×200。例えばテンピンなら、合計+250.0ptの収支は+25,000ptです。なしなら収支は出しません。'],
   };
   // ラベルをタップすると説明が開く
@@ -225,8 +241,29 @@
     return `${termLabel('base', tag)}${optButtons('base', OPTIONS.base[n], [v.start, v.ret], baseLabel)}
       ${termLabel('uma', tag)}${optButtons('uma', OPTIONS.uma[n], v.uma, umaLabel, (u) => u.every((x) => x === 0) ? '' : u.map((x) => (x > 0 ? '+' : '') + x).join(' / '))}
       ${termLabel('tobiPt', tag)}${optButtons('tobiPt', OPTIONS.tobiPt, v.tobiPt, tobiLabel)}
-      ${termLabel('chipPt', tag)}${optButtons('chipPt', OPTIONS.chipPt, v.chipPt, chipLabel, null, CHIP_CUSTOM)}
+      ${termLabel('chipPt', tag)}${chipOptions(v)}
       ${termLabel('rate', tag)}${optButtons('rate', OPTIONS.rate, v.rate, rateLabel, null, RATE_CUSTOM)}`;
+  }
+  // チップ：上で「ptで決める／収支で決める」を切り替え、下のボタンで1枚あたりの数を選ぶ
+  function chipOptions(v) {
+    const unit = v.chipUnit === 'settle' ? 'settle' : 'pt';
+    const noRate = !(v.rate > 0);
+    return `<div class="seg chip-seg"><button type="button" data-chipunit="pt" class="${unit === 'pt' ? 'on' : ''}">ptで決める</button>
+      <button type="button" data-chipunit="settle" class="${unit === 'settle' ? 'on' : ''}" ${noRate ? 'disabled' : ''}>収支で決める</button></div>
+      <p class="muted chip-note">${(unit === 'pt'
+        ? ['1枚あたりのptを合計に足します。', 'レートもかかります。', ...(noRate ? ['「収支で決める」は、', 'レートを決めると選べます。'] : [])]
+        : ['1枚あたりの数を収支に', 'そのまま足します。', 'レートはかけません。']).map((t) => `<span>${t}</span>`).join('')}</p>
+      ${unit === 'pt'
+        ? optButtons('chipPt', OPTIONS.chipPt, v.chipPt, (x) => chipLabel(x, 'pt'), null, CHIP_CUSTOM)
+        : optButtons('chipSet', OPTIONS.chipSet, v.chipPt, (x) => chipLabel(x, 'settle'), null, CHIPSET_CUSTOM)}`;
+  }
+  // レートを「なし」にしたら、「収支で決める」チップは使えないので「ptで決める・なし」に戻す
+  function fixChipUnit(target) {
+    if (target.chipUnit === 'settle' && !(target.rate > 0)) {
+      target.chipUnit = 'pt';
+      target.chipPt = 0;
+      customOpen.delete('chipSet');
+    }
   }
   // おすすめのルールの「内容を読み込む」部品。選んでいる状態（緑）にはしない＝どのルールを編集中か紛らわしくしない
   let presetLoadedMsg = '';
@@ -241,7 +278,7 @@
     $$('[data-load-preset]').forEach((b) => b.onclick = () => {
       const p = PRESETS.find((r) => r.id === b.dataset.loadPreset);
       if (!confirm(`「${p.name}」の内容で、今の設定を置き換えますか？`)) return;
-      Object.assign(target, { start: p.start, ret: p.ret, uma: [...p.uma], tobiPt: p.tobiPt, chipPt: p.chipPt, rate: p.rate });
+      Object.assign(target, { start: p.start, ret: p.ret, uma: [...p.uma], tobiPt: p.tobiPt, chipPt: p.chipPt, chipUnit: p.chipUnit || 'pt', rate: p.rate });
       customOpen.clear();
       presetLoadedMsg = `「${p.name}」の内容を読み込みました（名前は変わっていません）`;
       rerender();
@@ -400,9 +437,10 @@
   }
 
   // ---------- 新しい対局 ----------
-  const RULE_KEYS = ['start', 'ret', 'uma', 'tobiPt', 'chipPt', 'rate'];
-  const ruleValues = (r) => clone(Object.fromEntries(RULE_KEYS.map((k) => [k, r[k]])));
-  const ruleEquals = (a, b) => RULE_KEYS.every((k) => sameArr(a[k], b[k]));
+  const RULE_KEYS = ['start', 'ret', 'uma', 'tobiPt', 'chipPt', 'chipUnit', 'rate'];
+  // chipUnit がない（前の版で作った）ルールは「ptで決める」
+  const ruleValues = (r) => clone(Object.fromEntries(RULE_KEYS.map((k) => [k, k === 'chipUnit' ? (r[k] || 'pt') : r[k]])));
+  const ruleEquals = (a, b) => RULE_KEYS.every((k) => k === 'chipUnit' ? (a[k] || 'pt') === (b[k] || 'pt') : sameArr(a[k], b[k]));
 
   const newState = { mode: 4, selected: [], date: today(), name: '', ruleId: null, rule: null, ruleMode: null, open: false, saveRule: false, saveName: '' };
 
@@ -594,13 +632,18 @@
     if (!s) return (location.hash = '#/');
     const n = s.mode;
     const summary = summarizeSession(s);
-    const useChips = s.rule.chipPt > 0;
     const showSettle = s.rule.rate > 0;
+    const bySettle = chipBySettle(s.rule);
+    const useChips = s.rule.chipPt > 0 && (bySettle || s.rule.chipUnit !== 'settle');
+    const chipCount = (c) => `${c > 0 ? '+' : c < 0 ? '−' : '±'}${Math.abs(c)}枚`;
     const chipEntered = summary.some((r) => r.chips !== 0);
     const ranking = [...summary].filter((r) => r.games > 0 || r.chips !== 0).sort((a, b) => b.total10 - a.total10);
 
     // 結果の内訳：左に「半荘・チップ」、右に「合計（×レート）」と最終の数字
-    const breakdown = (r) => `<span>${r.games}半荘 ${formatPt(r.pt10)}</span>${useChips ? `<span>チップ ${formatPt(r.total10 - r.pt10)}</span>` : ''}`;
+    // チップを収支で決めているときは、枚数と収支の分を出す（ptには入れないため）
+    const breakdown = (r) => `<span>${r.games}半荘 ${formatPt(r.pt10)}</span>${!useChips ? ''
+      : bySettle ? `<span>チップ ${chipCount(r.chips)}</span><span class="paren">（収支${formatSettle(r.chipSettle10, false)}）</span>`
+      : `<span>チップ ${formatPt(r.total10 - r.pt10)}</span>`}`;
 
     // 半荘の表：マスは pt（上）と素点（下）。行の高さはそろえる（飛びはマスの角の印で示し、高さを変えない）
     const gameRows = s.games.map((g, gi) => {
@@ -617,7 +660,7 @@
     // 集計：「合計」と「収支」を最初から出し、内訳はボタンで開く（開くとすぐ下に出る）
     const details = [
       useChips ? ['半荘計', foot('半荘計', summary.map((r) => ptCell(r.pt10, r.games > 0)), 'breakdown-row')] : null,
-      useChips ? ['チップ', foot('チップ', summary.map((r) => ptCell(r.total10 - r.pt10)), 'breakdown-row')] : null,
+      useChips ? ['チップ', foot('チップ', summary.map((r) => bySettle ? `<td class="${ptClass(r.chips)}">${chipCount(r.chips)}</td>` : ptCell(r.total10 - r.pt10)), 'breakdown-row')] : null,
       ['順位', foot('順位', summary.map((r) => `<td class="ranks">${r.games ? r.ranks.slice(0, n).join('-') : '―'}</td>`), 'breakdown-row')],
     ].filter(Boolean);
     const footRows = foot('合計', summary.map((r) => ptCell(r.total10, r.games > 0 || r.chips !== 0)), 'main first')
@@ -632,7 +675,7 @@
         <tfoot>${footRows}</tfoot></table></div></div>
       <button type="button" id="foot-toggle" class="btn small foot-toggle">${toggleLabel()}</button>
       <div class="legend"><span class="tobi-sample"></span>＝飛び</div>
-      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? '収支はレート込みのptです。' : ''}${useChips ? '合計は半荘計＋チップ。' : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
+      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? '収支はレート込みのptです。' : ''}${useChips ? (bySettle ? 'チップは枚数で、収支にだけ入ります。' : '合計は半荘計＋チップ。') : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
 
     app.innerHTML = `${header(s.name || fmtDate(s.date), '#/')}
     <main>
@@ -652,7 +695,7 @@
             : numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true]])}
         </div>`).join('') : '<p class="empty" style="padding:8px 0">半荘の結果を入力すると、ここに順位と収支が出ます</p>'}
         ${useChips ? `<a class="btn chip-link" href="#/session/${s.id}/chips">チップを入力${chipEntered ? '（入力済み）' : ''}</a>
-          <p class="muted" style="margin:6px 0 0">チップは最後に手元の枚数を数えて入力します（1枚 = ${s.rule.chipPt}pt）</p>` : ''}
+          <p class="muted" style="margin:6px 0 0">チップは最後に手元の枚数を数えて入力します<span class="nowrap">（1枚 = ${bySettle ? `収支${s.rule.chipPt}` : `${s.rule.chipPt}pt`}）</span></p>` : ''}
       </div>
 
 
@@ -682,7 +725,7 @@
       table.style.width = `calc(${numW}px + (100% - ${numW}px) * ${cols} / ${n})`;
       // 極端な点数で数字が入りきらないときだけ、列を広げる（最小幅）
       const textW = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
-      const need = Math.max(...[...table.querySelectorAll('.c-pt, .c-sc, tfoot td:not(.num)')].map((el) => Math.ceil(textW(el)) + 4)); // ＋4 はマスの左右の余白
+      const need = Math.max(...[...table.querySelectorAll('.c-pt, .c-sc, tfoot td:not(.num)')].map((el) => Math.ceil(textW(el)) + 8)); // ＋8 はマスの左右の余白（隣の数字とくっつかないよう、左右4pxずつ）
       table.style.minWidth = `${numW + need * cols}px`;
       const outer = scroller.parentElement;
       const mark = () => {
@@ -755,16 +798,17 @@
   // ---------- チップ入力 ----------
   function viewChips(id) {
     const s = findSession(id);
-    if (!s || !(s.rule.chipPt > 0)) return (location.hash = id ? `#/session/${id}` : '#/');
+    const bySettle = s && chipBySettle(s.rule);
+    if (!s || !(s.rule.chipPt > 0) || (s.rule.chipUnit === 'settle' && !bySettle)) return (location.hash = id ? `#/session/${id}` : '#/');
     const summary = summarizeSession(s);
     const chipSum = summary.reduce((a, r) => a + r.chips, 0);
 
     app.innerHTML = `${header('チップを入力', `#/session/${s.id}`)}
     <main>
-      <p class="muted" style="margin-top:0">最後に手元に残ったチップを数えて、最初より増えた人は＋、減った人は−の枚数を入れてください（1枚 = ${s.rule.chipPt}pt）。</p>
+      <p class="muted" style="margin-top:0">最後に手元に残ったチップを数えて、最初より増えた人は＋、減った人は−の枚数を入れてください<span class="nowrap">（1枚 = ${bySettle ? `収支${s.rule.chipPt}` : `${s.rule.chipPt}pt`}）。</span></p>
       <div class="card">
         ${summary.map((r) => `<div class="person-row">${avatar(getPlayer(r.pid), 32)}<div class="nm"><div class="pname">${esc(playerName(r.pid))}</div>
-          <div class="cell-sub">${formatPt(Math.round(r.chips * s.rule.chipPt * 10))}</div></div>
+          <div class="cell-sub">${bySettle ? `収支 ${formatSettle(r.chipSettle10, false)}` : formatPt(Math.round(r.chips * s.rule.chipPt * 10))}</div></div>
           <div class="chip-ctl"><button data-chip="${r.pid}" data-d="-1" aria-label="減らす">−</button><span class="${ptClass(r.chips)}">${r.chips > 0 ? '+' : ''}${r.chips}</span><button data-chip="${r.pid}" data-d="1" aria-label="増やす">＋</button></div></div>`).join('')}
       </div>
       ${chipSum === 0
@@ -942,7 +986,7 @@
         window.scrollTo(0, y);
       });
       // 合計点数のチェック（全員の合計が持ち点×人数になるか）
-      const sumLine = `合計 <b>${formatScore(sum)}</b>点 ／ 正しい合計 ${formatScore(total)}点`;
+      const sumLine = `<span class="nowrap">合計 <b>${formatScore(sum)}</b>点</span> ／ <span class="nowrap">正しい合計 ${formatScore(total)}点</span>`;
       $('#check').innerHTML = !filled ? '' : !complete
         ? `<div class="sum-check">${sumLine}<br><span class="muted">あと${n - filled}人（残りの人の合計 ${formatScore(total - sum)}点）</span></div>`
         : diff === 0
@@ -986,7 +1030,7 @@
       }
       const results = calcGame(orderedSeats(vals), s.rule, form.tobiBy);
       $('#preview').innerHTML = results.map((r) => `<div class="person-row">
-        <span class="rk">${r.rank}位</span>${avatar(getPlayer(r.pid), 32)}
+        <span class="rk rk-wide">${r.rank}位</span>${avatar(getPlayer(r.pid), 32)}
         <div class="nm"><div class="ellipsis">${esc(playerName(r.pid))}</div><div class="cell-sub">${formatScore(r.score)}点${r.tobi10 ? `（飛び賞 ${formatPt(r.tobi10)}）` : ''}</div></div>
         <span class="big-pt ${ptClass(r.pt10)}">${formatPt(r.pt10)}</span></div>`).join('');
     }
@@ -1054,7 +1098,7 @@
       ${list.length ? `<ul class="list">${list.map((st, i) => `<li><a class="person-row" href="#/stats/${st.pid}">
         <span class="rk">${i + 1}</span>${avatar(getPlayer(st.pid), 40)}
         <div class="nm"><div class="ellipsis">${esc(playerName(st.pid))}</div>
-          <div class="cell-sub nowrap-parts"><span>${st.games}半荘・平均${st.avgRank.toFixed(2)}位</span> <span>トップ${formatPct(st.ranks[0] / st.games)}・ラス${formatPct(lastRankRate(st, n))}</span></div></div>
+          <div class="cell-sub stat-parts"><span>${st.games}半荘・</span><span>平均${st.avgRank.toFixed(2)}位</span><br><span>トップ${formatPct(st.ranks[0] / st.games)}・</span><span>ラス${formatPct(lastRankRate(st, n))}</span></div></div>
         ${numCol([['総合', `<span class="${ptClass(st.total10)}">${formatPt(st.total10)}</span>`, true], ...(st.hasSettle ? [['収支', `<span class="${ptClass(st.settle10)}">${formatSettle(st.settle10)}</span>`]] : [])])}
       </a></li>`).join('')}</ul>
       <p class="muted">総合pt ＝ 半荘のpt（飛び賞込み）＋ チップ。名前をタップすると詳しい成績が見られます。</p>`
@@ -1372,7 +1416,7 @@
         $('#msg').innerHTML = `<div class="notice">名前は${RULE_NAME_MAX}文字までです</div>`;
         return;
       }
-      const rule = { id: mine ? mine.id : uid(), mode: d.mode, name, start: d.start, ret: d.ret, uma: [...d.uma], tobiPt: d.tobiPt, chipPt: d.chipPt, rate: d.rate };
+      const rule = { id: mine ? mine.id : uid(), mode: d.mode, name, start: d.start, ret: d.ret, uma: [...d.uma], tobiPt: d.tobiPt, chipPt: d.chipPt, chipUnit: d.chipUnit || 'pt', rate: d.rate };
       if (mine) Object.assign(mine, rule);
       else db.myRules.push(rule);
       if (ruleReturn === '#/new' && rule.mode === newState.mode) pickRule(rule);

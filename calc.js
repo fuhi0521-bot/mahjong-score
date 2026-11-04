@@ -50,6 +50,8 @@
     },
     tobiPt: [0, 5, 10, 20],
     chipPt: [0, 1, 2, 5, 10],
+    // チップを「収支で決める」ときの1枚あたりの数（レートはかけずに収支へ足す）
+    chipSet: [0, 10, 20, 30, 50, 100],
     rate: [0, 30, 50, 100, 200],
   };
 
@@ -62,7 +64,9 @@
     return `${Math.abs(uma[1])}-${Math.abs(uma[0])}`;
   }
   function tobiLabel(pt) { return pt ? `${pt}pt` : 'なし'; }
-  function chipLabel(pt) { return pt ? `1枚${pt}pt` : 'なし'; }
+  function chipLabel(pt, unit) { return !pt ? 'なし' : unit === 'settle' ? `1枚 収支${pt}` : `1枚${pt}pt`; }
+  // チップを「収支で決める」か（chipUnit: 'settle'）。レートがあるときだけ有効
+  function chipBySettle(rule) { return rule.chipUnit === 'settle' && rule.rate > 0; }
   // レートは収支ptの倍率（金額は扱わない）。1pt＝1,000点あたりの数で、テンピン（1,000点100）なら ×100
   function rateLabel(rate) {
     // 倍率（×100 など）は画面に出さない。「その他」で入れた数字は「その他（7.5）」
@@ -74,7 +78,7 @@
       baseLabel([rule.start, rule.ret]),
       `ウマ${umaLabel(rule.uma)}`,
       `飛び賞${tobiLabel(rule.tobiPt)}`,
-      `チップ${chipLabel(rule.chipPt)}`,
+      `チップ${chipLabel(rule.chipPt, rule.chipUnit)}`,
       ...(rule.rate ? [`レート ${rateLabel(rule.rate)}`] : []),
     ].join('・');
   }
@@ -140,10 +144,13 @@
     for (const pid of session.playerIds) {
       const row = rows[pid];
       row.chips = rule.chipPt ? Number((session.chips || {})[pid]) || 0 : 0;
-      row.total10 = row.pt10 + Math.round(row.chips * rule.chipPt * 10);
+      const bySettle = chipBySettle(rule);
+      row.total10 = row.pt10 + (bySettle ? 0 : Math.round(row.chips * rule.chipPt * 10));
       // レートなしの対局は ×1 として扱う。端数（×7.5 などのとき）はプラスもマイナスも同じく四捨五入する
+      // チップを収支で決めているときは、チップの分はレートをかけずに収支へそのまま足す
       const raw = row.total10 * (rule.rate || 1);
-      row.settle10 = Math.sign(raw) * Math.round(Math.abs(raw));
+      row.chipSettle10 = bySettle ? Math.round(row.chips * rule.chipPt * 10) : 0; // 収支のうち「収支で決める」チップの分
+      row.settle10 = Math.sign(raw) * Math.round(Math.abs(raw)) + row.chipSettle10;
     }
     return session.playerIds.map((pid) => rows[pid]);
   }
@@ -272,7 +279,7 @@
   const MJ = {
     SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, okaPt10, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
-    baseLabel, umaLabel, tobiLabel, chipLabel, rateLabel, ruleSummary,
+    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = MJ;
   else root.MJ = MJ;
