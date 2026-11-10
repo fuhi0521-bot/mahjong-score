@@ -2,7 +2,7 @@
 (function () {
   const { SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
-    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary } = MJ;
+    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary, packShare, unpackShare } = MJ;
 
   // ズーム禁止：ブラウザの Safari は viewport の user-scalable=no を無視するため、2本指の拡大も止める
   ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
@@ -698,6 +698,8 @@
           <p class="muted" style="margin:6px 0 0">チップは最後に手元の枚数を数えて入力します<span class="nowrap">（1枚 = ${bySettle ? `収支${s.rule.chipPt}` : `${s.rule.chipPt}pt`}）</span></p>` : ''}
       </div>
 
+
+      ${s.games.length ? `<a class="btn share-link" href="#/session/${s.id}/share">友達に送る（QRコード・リンク）</a>` : ''}
 
       <h2>この対局について</h2>
       <div class="card info-card">
@@ -1435,6 +1437,267 @@
     }
   }
 
+  // ---------- 友達に送る（QRコード・リンク） ----------
+  // リンクはいつも公開している Web 版を開く（iPhone アプリの中の住所は外から開けないため）
+  const SHARE_BASE = 'https://fuhi0521-bot.github.io/mahjong-score/';
+  const APP_SCHEME = 'mahjongscore://import/';
+  const inApp = () => !!window.ReactNativeWebView;
+  const QR_MAX_MODULES = 137; // これより細かい QR コードは、画面からだと読み取りにくい
+
+  function qrSvg(text) {
+    if (typeof qrcode !== 'function') return null;
+    const q = qrcode(0, 'L');
+    q.addData(text);
+    q.make();
+    const n = q.getModuleCount();
+    if (n > QR_MAX_MODULES) return null;
+    const pad = 4; // まわりの白い余白（読み取りに必要）
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + pad} ${r + pad}h1v1h-1z`;
+    const size = n + pad * 2;
+    return `<svg class="qr" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" role="img" aria-label="QRコード"><rect width="${size}" height="${size}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  }
+
+  // コピー：使えるものから順に試す
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      ta.setSelectionRange(0, text.length);
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      ta.remove();
+      return ok;
+    }
+  }
+
+  async function viewShare(id) {
+    const s = findSession(id);
+    if (!s || !s.games.length) return (location.hash = s ? `#/session/${id}` : '#/');
+    const here = location.hash;
+    const url = `${SHARE_BASE}#/import/${await packShare(s, db.players)}`;
+    if (location.hash !== here) return; // 作っている間に別の画面に移った
+    const title = s.name || fmtDate(s.date);
+    const text = `麻雀の対局「${title}」（${s.games.length}半荘）の結果です。開くと、あなたの「簡単麻雀スコア」に取り込めます。`;
+    const svg = qrSvg(url);
+    app.innerHTML = `${header('友達に送る', `#/session/${s.id}`)}
+    <main>
+      <p class="muted phrases" style="margin-top:0"><span>友達の「簡単麻雀スコア」に、</span><span>この対局（${s.games.length}半荘）を取り込めます。</span><span>友達の成績にも入ります。</span><span>メンバーの写真は送られません。</span></p>
+
+      <h2>その場で渡す</h2>
+      <div class="card qr-card">
+        ${svg ? `<div class="qr-box">${svg}</div>
+        <p class="muted qr-note"><span>友達の iPhone のカメラで</span><span>読み取ってもらいます</span></p>`
+          : '<div class="notice">半荘の数が多く、QRコードが細かくなりすぎるため表示できません。下のボタンからリンクで送ってください。</div>'}
+      </div>
+
+      <h2>LINE などで送る</h2>
+      <div class="card">
+        <button type="button" id="share-send" class="btn primary" style="width:100%">リンクを送る</button>
+        <button type="button" id="share-copy" class="btn" style="width:100%;margin-top:8px">リンクをコピー</button>
+        <div id="msg"></div>
+      </div>
+      <p class="muted phrases"><span>あとで半荘を足したら、</span><span>もう一度送ってください。</span><span>友達の記録も</span><span>新しい内容になります。</span></p>
+    </main>`;
+
+    const done = (m) => { $('#msg').innerHTML = `<p class="muted" style="margin:8px 0 0">${m}</p>`; };
+    $('#share-copy').onclick = async () => {
+      if (await copyText(url)) done('リンクをコピーしました。LINE などに貼り付けて送ってください。');
+      else prompt('このリンクをコピーして送ってください', url);
+    };
+    $('#share-send').onclick = async () => {
+      if (inApp()) {
+        // iPhone アプリでは、アプリの共有画面を開く（App.js が受け取る）
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'share', text, url }));
+        return;
+      }
+      if (navigator.share) {
+        try { await navigator.share({ title: '簡単麻雀スコア', text, url }); } catch (e) { /* 閉じたときは何もしない */ }
+        return;
+      }
+      $('#share-copy').onclick();
+    };
+  }
+
+  // ---------- 友達から届いた対局を取り込む ----------
+  let importDraft = null; // { code, data, map: 届いた人ごとに、この端末のプレイヤーID か 'new' }
+  const shareKey = (x) => x.origin || x.id;
+
+  function uniqueName(name) {
+    if (!db.players.some((p) => p.name === name)) return name;
+    for (let i = 2; ; i++) {
+      const suffix = String(i);
+      let base = name;
+      while (nameLength(base + suffix) > NAME_MAX) base = Array.from(base).slice(0, -1).join('');
+      if (!db.players.some((p) => p.name === base + suffix)) return base + suffix;
+    }
+  }
+
+  // 2行になる名前は、なるべく半分の位置で分ける（1文字だけの行や、小さい「ゅ」「ー」などで始まる行を作らない）
+  const NO_LINE_START = 'ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶーゝゞヽヾ・、。，．）」』】〕〉》！？!?)]}';
+  function splitNames(els) {
+    const lineCount = (el) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+    };
+    for (const el of els) {
+      const chars = Array.from(el.textContent);
+      if (chars.length < 2 || lineCount(el) < 2) continue;
+      const mid = Math.ceil(chars.length / 2);
+      // 真ん中から外へ順に、行の頭にしてよい文字を探す
+      const order = [];
+      for (let d = 0; d < chars.length; d++) [mid + d, mid - d].forEach((k) => { if (k > 0 && k < chars.length && !order.includes(k)) order.push(k); });
+      const k = order.find((i) => !NO_LINE_START.includes(chars[i]));
+      if (!k) continue;
+      const text = el.textContent;
+      el.innerHTML = `${esc(chars.slice(0, k).join(''))}<br>${esc(chars.slice(k).join(''))}`;
+      if (lineCount(el) > 2) el.textContent = text; // 半分でも入りきらないときは元に戻す
+    }
+  }
+
+  async function viewImport(code) {
+    const here = location.hash;
+    const data = await unpackShare(code || '');
+    if (location.hash !== here) return; // 読んでいる間に別の画面に移った
+    if (!data || data === 'old') {
+      app.innerHTML = `${header('対局を取り込む', '#/')}
+      <main>
+        <div class="notice">${data === 'old'
+          ? 'この端末では、このリンクを読み取れません。iPhone の iOS を新しくしてから、もう一度開いてください。'
+          : 'このリンクは読み取れませんでした。リンクが途中で切れている可能性があります。送った人に、もう一度送ってもらってください。'}</div>
+        <a class="btn primary big" style="margin-top:16px" href="#/">ホームへ</a>
+      </main>`;
+      return;
+    }
+    const existing = db.sessions.find((x) => shareKey(x) === data.origin);
+    if (!importDraft || importDraft.code !== code) {
+      const used = new Set();
+      const map = data.players.map((p) => {
+        const remembered = existing && existing.importMap && existing.importMap[p.key];
+        const pick = (remembered && db.players.some((x) => x.id === remembered) && remembered)
+          || (db.players.find((x) => x.name === p.name) || {}).id;
+        if (pick && !used.has(pick)) { used.add(pick); return pick; }
+        return 'new';
+      });
+      importDraft = { code, data, map };
+    }
+    const { map } = importDraft;
+
+    // 送られてきた内容で計算して、順位を見せる（この端末のデータはまだ変えない）
+    const keys = data.players.map((p, i) => `i${i}`);
+    const preview = {
+      rule: data.rule, playerIds: keys,
+      games: data.games.map((g) => ({ seats: g.seats.map((x) => ({ pid: keys[x.i], score: x.score })), tobiBy: g.tobi >= 0 ? keys[g.tobi] : null })),
+      chips: Object.fromEntries(keys.map((k, i) => [k, data.chips[i]])),
+    };
+    const summary = summarizeSession(preview);
+    const showSettle = data.rule.rate > 0;
+    const ranking = summary.filter((r) => r.games > 0 || r.chips !== 0).sort((a, b) => b.total10 - a.total10);
+    const incoming = (i) => ({ name: data.players[i].name, icon: ICON_KEYS.includes(data.players[i].icon) ? data.players[i].icon : null });
+    const title = data.name || fmtDate(data.date);
+    // 選択欄に出す文字（選択欄の中の文字は途中で切れるので、上に重ねた文字で「…」つきにする）
+    const mapLabel = (v) => (v === 'new' ? '新しく登録' : playerName(v));
+
+    app.innerHTML = `${header('対局を取り込む', '#/')}
+    <main class="import-view">
+      ${inApp() ? '' : `<div class="card open-app">
+        <p style="margin:0 0 8px">iPhone アプリ「簡単麻雀スコア」を使っている人は、アプリで開いてください。</p>
+        <a class="btn primary" style="width:100%" href="${APP_SCHEME}${code}">アプリで開く</a>
+        <p class="muted" style="margin:8px 0 0">アプリを使っていない人は、下のボタンでこのブラウザに取り込めます。</p>
+      </div>`}
+
+      <h2>届いた対局</h2>
+      <div class="card info-card">
+        <div class="info-row"><span class="k">名前</span><span>${esc(title)}</span></div>
+        <div class="info-row"><span class="k">日付</span><span>${fmtDate(data.date)}</span></div>
+        <div class="info-row"><span class="k">ルール</span><span>${esc(data.ruleName || 'カスタム')}（${data.mode === 4 ? '四麻' : '三麻'}）<br><span class="muted small">${esc(ruleSummary(data.rule))}</span></span></div>
+        <div class="info-row"><span class="k">半荘</span><span>${data.games.length}回</span></div>
+        ${ranking.map((r, i) => {
+          const idx = keys.indexOf(r.pid);
+          return `<div class="person-row result-line">
+          <span class="rk">${i + 1}</span>${avatar(incoming(idx), 36)}
+          <div class="nm"><div class="pname">${esc(data.players[idx].name)}</div></div>
+          ${showSettle
+            ? numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true], ['収支', `<span class="${ptClass(r.settle10)}">${formatSettle(r.settle10)}</span>`, true]])
+            : numCol([['合計', `<span class="${ptClass(r.total10)}">${formatPt(r.total10)}</span>`, true]])}
+        </div>`;
+        }).join('')}
+      </div>
+      ${existing ? `<div class="notice">この対局は取り込み済みです。取り込むと、新しい内容（${data.games.length}半荘）に置き換わります。</div>` : ''}
+
+      <h2>メンバーを合わせる</h2>
+      <p class="muted" style="margin-top:0">それぞれの人を、あなたのアプリのプレイヤーから選びます。いない人は新しく登録されます。</p>
+      <div class="card">
+        ${data.players.map((p, i) => `<div class="map-row">
+          <div class="map-from">${avatar(incoming(i), 36)}<div class="map-nm"><div class="pname">${esc(p.name)}</div></div></div>
+          <label class="map-pick">
+            <span class="map-label">${esc(mapLabel(map[i]))}</span>
+            <select data-map="${i}" aria-label="${esc(p.name)}さんを合わせるプレイヤー">
+              <option value="new" ${map[i] === 'new' ? 'selected' : ''}>新しく登録</option>
+              ${db.players.map((x) => `<option value="${x.id}" ${map[i] === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}
+            </select>
+          </label>
+        </div>`).join('')}
+      </div>
+      <div id="msg"></div>
+      <button type="button" id="do-import" class="btn primary big" style="margin-top:16px">${existing ? '新しい内容に更新する' : '取り込む'}</button>
+    </main>`;
+
+    splitNames($$('.import-view .pname'));
+    $$('[data-map]').forEach((sel) => sel.onchange = () => {
+      map[+sel.dataset.map] = sel.value;
+      sel.parentElement.querySelector('.map-label').textContent = mapLabel(sel.value);
+    });
+    $('#do-import').onclick = () => {
+      const picked = map.filter((v) => v !== 'new');
+      if (new Set(picked).size !== picked.length) {
+        $('#msg').innerHTML = '<div class="notice">同じプレイヤーが2人に選ばれています。1人に1人ずつ選んでください。</div>';
+        return;
+      }
+      if (existing && !confirm('この対局を、届いた新しい内容に置き換えます。よろしいですか？')) return;
+      const pids = data.players.map((p, i) => {
+        if (map[i] !== 'new') return map[i];
+        const np = { id: uid(), name: uniqueName(p.name), icon: incoming(i).icon || nextIcon(), photo: null };
+        db.players.push(np);
+        return np.id;
+      });
+      const clamp = (str, max) => (nameLength(str) > max ? Array.from(str).slice(0, max).join('') : str);
+      const now = Date.now();
+      const session = {
+        id: existing ? existing.id : uid(),
+        origin: data.origin,
+        date: data.date,
+        name: clamp(data.name, SESSION_NAME_MAX),
+        mode: data.mode,
+        ruleName: clamp(data.ruleName, RULE_NAME_MAX) || 'カスタム',
+        rule: data.rule,
+        playerIds: pids,
+        games: data.games.map((g, gi) => ({
+          id: uid() + gi,
+          seats: g.seats.map((x) => ({ pid: pids[x.i], score: x.score })),
+          tobiBy: g.tobi >= 0 ? pids[g.tobi] : null,
+          createdAt: now + gi,
+        })),
+        chips: Object.fromEntries(pids.map((pid, i) => [pid, data.chips[i]]).filter(([, c]) => c !== 0)),
+        createdAt: existing ? existing.createdAt : now,
+        importMap: Object.fromEntries(data.players.map((p, i) => [p.key, pids[i]])),
+      };
+      if (existing) db.sessions[db.sessions.indexOf(existing)] = session;
+      else db.sessions.push(session);
+      if (!save()) return;
+      importDraft = null;
+      location.hash = `#/session/${session.id}`;
+    };
+  }
+
   // ---------- ルーティング ----------
   function route() {
     const parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -1443,6 +1706,7 @@
     if (parts[0] !== 'session' || parts[2] !== 'game') form = null;
     if (parts[0] !== 'players' || !parts[1]) { playerDraft = null; playerReturn = null; }
     if (parts[0] !== 'rules' || !parts[1]) ruleDraft = null;
+    if (parts[0] !== 'import' || parts[1] !== importDraft?.code) importDraft = null;
     if (parts[0] === 'stats' && parts[1]) return viewStatsDetail(parts[1]);
     if (parts[0] === 'stats') return viewStats();
     if (parts[0] === 'help') return viewHelp();
@@ -1456,6 +1720,8 @@
     if (parts[0] === 'session' && parts[2] === 'game') return viewGame(parts[1], parts[3]);
     if (parts[0] === 'session' && parts[2] === 'chips') return viewChips(parts[1]);
     if (parts[0] === 'session' && parts[2] === 'members') return viewAddMember(parts[1]);
+    if (parts[0] === 'session' && parts[2] === 'share') return viewShare(parts[1]);
+    if (parts[0] === 'import') return viewImport(parts[1]);
     if (parts[0] === 'session') return viewSession(parts[1]);
     return viewHome();
   }

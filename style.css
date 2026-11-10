@@ -652,3 +652,28 @@ input, select, textarea { font-size: 16px; }
 .chip-note { font-size: 13px; margin: 2px 0 8px; }
 .chip-note span { display: inline-block; } /* 言葉の区切りでだけ改行する（文の途中や「す。」だけで折り返さない） */
 .breakdown span.paren { margin-left: -0.5em; } /* 全角「（」の左の空きをそろえる */
+
+/* 友達に送る・取り込む */
+.share-link { width: 100%; margin-top: 12px; }
+.qr-card { text-align: center; }
+.qr-box { width: min(100%, 280px); margin: 0 auto; }
+.qr-box .qr { display: block; width: 100%; height: auto; border-radius: 6px; }
+.qr-note { margin: 10px 0 0; }
+.qr-note span, .phrases span { display: inline-block; } /* 「カメラで」の区切りでだけ折り返す */
+.open-app { margin-bottom: 4px; }
+.map-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; overflow: hidden; } /* 選択欄の中の長い名前が、ページの幅を広げないようにする（iPhone の Safari） */
+.map-row + .map-row { border-top: 1px solid var(--line); }
+.map-from { flex: 1 1 0; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.map-nm { flex: 1; min-width: 0; }
+/* 選択欄は中の長い名前に合わせて広がらないよう、幅を決めておく（iPhone の Safari で横にはみ出したため） */
+.map-pick {
+  position: relative; flex: 0 0 46%; width: 46%; min-width: 0; height: 44px; display: flex; align-items: center;
+  padding: 0 28px 0 10px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+}
+.map-label { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* 本物の選択欄は透明にして上に重ねる（押すと iPhone の選択画面が出る） */
+.map-pick select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; -webkit-appearance: none; appearance: none; border: 0; font-size: 16px; }
+.map-pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* 取り込む画面の名前：内訳の行がないので上下の中央に置き、2行のときは文字数をそろえて折り返す（1文字だけの行を作らない） */
+.import-view .pname { height: auto; max-height: 2.6em; line-break: strict; } /* 2行に分ける位置は app.js の splitNames で決める */

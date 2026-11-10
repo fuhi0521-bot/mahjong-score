@@ -276,7 +276,130 @@
     return Array.from(name).length;
   }
 
+  // ---------- 友達に送る（対局をリンク・QRコード用の短い文字にする） ----------
+  // 中身：{ v:1, i:元の対局ID, d:日付, n:名前, m:3|4, r:ルール名, u:ルール, k:点数の単位,
+  //        p:[[送った人の端末のID, 名前, アイコン]], g:[[[席の人の番号, 点数/k], ...], 飛ばした人の番号|-1],
+  //        c:[人ごとのチップ枚数] }
+  // 写真は送らない。リンクの「#」より後ろに入れるので、Web版を開いてもサーバーには送られない。
+  const SHARE_VERSION = 1;
+  const SHARE_RULE_KEYS = ['start', 'ret', 'uma', 'tobiPt', 'chipPt', 'chipUnit', 'rate'];
+  const toB64url = (bytes) => {
+    let bin = '';
+    bytes.forEach((b) => { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const fromB64url = (str) => {
+    const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  };
+
+  // session：対局、players：その対局のメンバー（{id, name, icon}。写真は使わない）
+  function encodeShare(session, players) {
+    const index = new Map(session.playerIds.map((pid, i) => [pid, i]));
+    const scores = session.games.flatMap((g) => g.seats.map((x) => x.score));
+    const k = scores.every((v) => v % 100 === 0) ? 100 : 1;
+    const data = {
+      v: SHARE_VERSION,
+      i: session.origin || session.id,
+      d: session.date,
+      n: session.name || '',
+      m: session.mode,
+      r: session.ruleName || '',
+      u: Object.fromEntries(SHARE_RULE_KEYS.filter((key) => session.rule[key] !== undefined).map((key) => [key, session.rule[key]])),
+      k,
+      p: session.playerIds.map((pid) => {
+        const p = players.find((x) => x.id === pid) || { name: '?', icon: null };
+        return [pid, p.name, p.icon || null];
+      }),
+      g: session.games.map((g) => [g.seats.map((x) => [index.get(x.pid), x.score / k]), g.tobiBy && index.has(g.tobiBy) ? index.get(g.tobiBy) : -1]),
+      c: session.playerIds.map((pid) => (session.chips && session.chips[pid]) || 0),
+    };
+    return toB64url(new TextEncoder().encode(JSON.stringify(data)));
+  }
+
+  // 戻す。おかしなデータ（壊れたリンク・手で書き換えたリンク）は null を返す
+  function decodeShare(str) {
+    let d;
+    try {
+      if (typeof str !== 'string' || !/^[A-Za-z0-9_-]+$/.test(str) || str.length > 20000) return null;
+      d = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(fromB64url(str)));
+    } catch (e) {
+      return null;
+    }
+    const isInt = (v) => Number.isInteger(v);
+    const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+    const isStr = (v, max) => typeof v === 'string' && v.length <= max;
+    if (!d || typeof d !== 'object' || d.v !== SHARE_VERSION) return null;
+    if (!isStr(d.i, 40) || !d.i || !/^\d{4}-\d{2}-\d{2}$/.test(d.d || '') || !isStr(d.n, 40) || !isStr(d.r, 40)) return null;
+    if (d.m !== 3 && d.m !== 4) return null;
+    if (d.k !== 1 && d.k !== 100) return null;
+    // ルール：知っている項目だけを、決まった形で受け取る
+    const u = d.u || {};
+    if (![u.start, u.ret, u.tobiPt, u.chipPt, u.rate].every(isNum)) return null;
+    if (!Array.isArray(u.uma) || u.uma.length !== d.m || !u.uma.every(isNum)) return null;
+    if (u.chipUnit !== undefined && u.chipUnit !== 'pt' && u.chipUnit !== 'settle') return null;
+    const rule = { start: u.start, ret: u.ret, uma: [...u.uma], tobiPt: u.tobiPt, chipPt: u.chipPt, chipUnit: u.chipUnit || 'pt', rate: u.rate };
+    // メンバー：対局の人数〜8人。名前は空でなく、10文字まで・重ならない
+    if (!Array.isArray(d.p) || d.p.length < d.m || d.p.length > 8) return null;
+    const players = [];
+    for (const x of d.p) {
+      if (!Array.isArray(x) || !isStr(x[0], 40) || !x[0] || !isStr(x[1], 40)) return null;
+      const name = x[1].trim();
+      if (!name || nameLength(name) > NAME_MAX || players.some((p) => p.name === name || p.key === x[0])) return null;
+      if (x[2] !== null && !isStr(x[2], 20)) return null;
+      players.push({ key: x[0], name, icon: x[2] });
+    }
+    // 半荘：席の数は対局の人数ちょうど。同じ人が2回座らない
+    if (!Array.isArray(d.g) || d.g.length > 200) return null;
+    const games = [];
+    for (const g of d.g) {
+      if (!Array.isArray(g) || !Array.isArray(g[0]) || g[0].length !== d.m) return null;
+      const seats = [];
+      for (const s of g[0]) {
+        if (!Array.isArray(s) || !isInt(s[0]) || s[0] < 0 || s[0] >= players.length || !isInt(s[1])) return null;
+        if (seats.some((x) => x.i === s[0])) return null;
+        const score = s[1] * d.k;
+        if (Math.abs(score) > 10000000) return null;
+        seats.push({ i: s[0], score });
+      }
+      if (!isInt(g[1]) || g[1] < -1 || g[1] >= players.length || (g[1] >= 0 && !seats.some((x) => x.i === g[1]))) return null;
+      games.push({ seats, tobi: g[1] });
+    }
+    if (!Array.isArray(d.c) || d.c.length !== players.length || !d.c.every((v) => isInt(v) && Math.abs(v) <= 100000)) return null;
+    return { origin: d.i, date: d.d, name: d.n.trim(), mode: d.m, ruleName: d.r.trim(), rule, players, games, chips: [...d.c] };
+  }
+
+  // 圧縮してリンクを短くする（QRコードを読み取りやすくするため）。先頭の「z」が圧縮の印。
+  // 圧縮していない文字は必ず「eyJ」（{" の形）で始まるので見分けられる。
+  // 圧縮が使えない古い端末では、圧縮せずに送る
+  async function streamBytes(bytes, Stream) {
+    const out = new Response(new Blob([bytes]).stream().pipeThrough(new Stream('deflate-raw')));
+    return new Uint8Array(await out.arrayBuffer());
+  }
+  async function packShare(session, players) {
+    const plain = encodeShare(session, players);
+    if (typeof CompressionStream === 'undefined') return plain;
+    try {
+      return `z${toB64url(await streamBytes(fromB64url(plain), CompressionStream))}`;
+    } catch (e) {
+      return plain;
+    }
+  }
+  // 戻り値：データ、読めないときは null、圧縮を戻せない古い端末では 'old'
+  async function unpackShare(code) {
+    if (typeof code !== 'string' || !code.startsWith('z')) return decodeShare(code);
+    if (typeof DecompressionStream === 'undefined') return 'old';
+    try {
+      const body = code.slice(1);
+      if (!/^[A-Za-z0-9_-]+$/.test(body) || body.length > 20000) return null;
+      return decodeShare(toB64url(await streamBytes(fromB64url(body), DecompressionStream)));
+    } catch (e) {
+      return null;
+    }
+  }
+
   const MJ = {
+    encodeShare, decodeShare, packShare, unpackShare,
     SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, okaPt10, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
     baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary,
