@@ -677,3 +677,21 @@ input, select, textarea { font-size: 16px; }
 .map-pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* 取り込む画面の名前：内訳の行がないので上下の中央に置き、2行のときは文字数をそろえて折り返す（1文字だけの行を作らない） */
 .import-view .pname { height: auto; max-height: 2.6em; line-break: strict; } /* 2行に分ける位置は app.js の splitNames で決める */
+
+/* マイルールを作る（1問ずつ） */
+.wiz-progress { display: flex; align-items: center; gap: 6px; margin: 4px 0 4px; }
+.wiz-progress span { flex: 1; height: 6px; border-radius: 3px; background: var(--line); }
+.wiz-progress span.done { background: #8fb5a2; }
+.wiz-progress span.now { background: var(--accent); }
+.wiz-progress em { font-style: normal; font-size: 12px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
+.wizard .wiz-q { font-size: 22px; color: var(--text); margin: 20px 0 6px; }
+.wiz-help { font-size: 13px; margin: 0 0 14px; }
+.wizard .opts .opt { min-height: 56px; font-size: 17px; }
+.wiz-opts { grid-template-columns: 1fr 1fr; }
+.wiz-nav { display: flex; justify-content: space-between; gap: 8px; margin-top: 24px; }
+.wiz-nav .btn { flex: 0 1 auto; }
+.wiz-sum { padding-top: 4px; padding-bottom: 4px; }
+.wiz-row { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 0; }
+.wiz-row + .wiz-row { border-top: 1px solid var(--line); }
+.wiz-row .k { font-size: 12px; color: var(--muted); }
+.wiz-row .v { font-size: 15px; font-weight: 600; min-width: 0; }

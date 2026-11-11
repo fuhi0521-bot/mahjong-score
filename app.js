@@ -534,6 +534,10 @@
       <button id="start" class="btn primary big sticky-bottom" ${ready ? '' : 'disabled'}>${ready ? (count > n ? `${count}人で交代しながら始める` : '対局を始める') : `あと${n - count}人選んでください`}</button>
     </main>`;
 
+    if (newState.showRule) {
+      newState.showRule = false;
+      requestAnimationFrame(() => $('.rule-now') && $('.rule-now').scrollIntoView({ block: 'center' }));
+    }
     const rerender = () => { const y = window.scrollY; viewNew(); window.scrollTo(0, y); };
     $$('[data-mode]').forEach((b) => b.onclick = () => {
       newState.mode = Number(b.dataset.mode);
@@ -565,9 +569,11 @@
     if (cancelBtn) cancelBtn.onclick = () => { pickRule(rules.find((r) => r.id === newState.ruleId) || rules[0]); newState.open = false; rerender(); };
     bindPresetLoader(rv, rerender);
     const createBtn = $('#create-rule');
+    // 新しいルールは「1問ずつ答える」画面で作る。保存したら、この画面に戻ってそのルールが選ばれる
     if (createBtn) createBtn.onclick = () => {
-      Object.assign(newState, { creating: true, open: true, saveRule: true, saveName: '' });
-      rerender();
+      ruleReturn = '#/new';
+      ruleDraft = null;
+      location.hash = '#/rules/new';
     };
     const saveChk = $('#save-rule');
     if (saveChk) saveChk.onchange = (e) => { newState.saveRule = e.target.checked; rerender(); };
@@ -1437,6 +1443,158 @@
     }
   }
 
+  // ---------- マイルールを作る（1問ずつ答える） ----------
+  // 1画面に質問を1つだけ出し、ボタンを押すと次の質問へ進む。最後に内容を確かめて保存する。
+  // チップの「収支で決める」はレートを決めないと選べないので、レートを先に聞く。
+  // help は短い説明（言葉のまとまりごとに分け、まとまりの途中では改行しない）
+  const WIZ_STEPS = [
+    { key: 'mode', q: '何人で打ちますか？' },
+    { key: 'base', q: '持ち点と返しは？', help: ['最初に配る点数（持ち点）と、', '順位点を計算する基準（返し）です。'] },
+    { key: 'uma', q: 'ウマは？', help: ['順位でやりとりするptです。', '数字が大きいほど、', '順位の差が大きくなります。'] },
+    { key: 'tobiPt', q: '飛び賞は？', help: ['誰かが0点未満になったとき、', '飛ばした人がもらうptです。'] },
+    { key: 'rate', q: 'レートは？', help: ['合計ptにかける倍率です。', 'テンピンは×100。', '「なし」なら収支は出しません。'] },
+    { key: 'chipPt', q: 'チップは？', help: ['一発や裏ドラなどで', 'やりとりするチップです。', '使わないなら「なし」。'] },
+    { key: 'confirm', q: 'この内容で保存します' },
+  ];
+
+  // 内容から名前を作る（例：ウマ10-30・テンピン）。12文字まで・今あるマイルールと重ならない
+  function autoRuleName(d) {
+    const rate = d.rate > 0 ? (OPTIONS.rate.includes(d.rate) ? rateLabel(d.rate) : `×${d.rate}`) : '';
+    const parts = [
+      d.uma.some((x) => x !== 0) ? `ウマ${umaLabel(d.uma)}` : 'ウマなし',
+      rate,
+      d.chipPt > 0 ? `チップ${d.chipPt}` : '',
+      d.tobiPt > 0 ? `飛び${d.tobiPt}` : '',
+    ].filter(Boolean);
+    let name = '';
+    for (const p of parts) {
+      const next = name ? `${name}・${p}` : p;
+      if (nameLength(next) > RULE_NAME_MAX) break;
+      name = next;
+    }
+    if (!name) name = 'マイルール';
+    const taken = (x) => db.myRules.some((r) => r.name === x);
+    if (!taken(name)) return name;
+    for (let i = 2; ; i++) {
+      let base = name;
+      while (nameLength(`${base}${i}`) > RULE_NAME_MAX) base = Array.from(base).slice(0, -1).join('');
+      if (!taken(`${base}${i}`)) return `${base}${i}`;
+    }
+  }
+
+  function viewRuleWizard() {
+    const fromNew = ruleReturn === '#/new';
+    const steps = fromNew ? WIZ_STEPS.filter((s) => s.key !== 'mode') : WIZ_STEPS; // 対局から来たときは人数は決まっている
+    if (!ruleDraft || ruleDraft.key !== 'wizard') {
+      const n0 = fromNew ? newState.mode : 4;
+      ruleDraft = { key: 'wizard', step: 0, ...clone(PRESETS.find((r) => r.id === RECOMMENDED[n0])), name: '', named: false };
+      delete ruleDraft.desc;
+      ruleDraft.chipUnit = ruleDraft.chipUnit || 'pt';
+    }
+    const d = ruleDraft;
+    const n = d.mode;
+    const back = ruleReturn || '#/rules';
+    const step = steps[Math.min(d.step, steps.length - 1)];
+    const total = steps.length - 1; // 確かめる画面は数えない
+    if (!d.named) d.name = autoRuleName(d);
+
+    let body = '';
+    if (step.key === 'mode') {
+      body = `<div class="opts wiz-opts">${[4, 3].map((m) => `<button type="button" class="opt ${n === m ? 'on' : ''}" data-wiz-mode="${m}">${m === 4 ? '四麻' : '三麻'}<small>${m}人で打つ</small></button>`).join('')}</div>`;
+    } else if (step.key === 'base') body = optButtons('base', OPTIONS.base[n], [d.start, d.ret], baseLabel);
+    else if (step.key === 'uma') body = optButtons('uma', OPTIONS.uma[n], d.uma, umaLabel, (u) => u.every((x) => x === 0) ? '' : u.map((x) => (x > 0 ? '+' : '') + x).join(' / '));
+    else if (step.key === 'tobiPt') body = optButtons('tobiPt', OPTIONS.tobiPt, d.tobiPt, tobiLabel);
+    else if (step.key === 'rate') body = optButtons('rate', OPTIONS.rate, d.rate, rateLabel, null, RATE_CUSTOM);
+    else if (step.key === 'chipPt') body = chipOptions(d);
+    else {
+      const rows = [
+        ['人数', n === 4 ? '四麻' : '三麻', fromNew ? null : 'mode'],
+        ['持ち点・返し', baseLabel([d.start, d.ret]), 'base'],
+        ['ウマ', umaLabel(d.uma), 'uma'],
+        ['飛び賞', tobiLabel(d.tobiPt), 'tobiPt'],
+        ['レート', rateLabel(d.rate), 'rate'],
+        ['チップ', chipLabel(d.chipPt, d.chipUnit), 'chipPt'],
+      ];
+      body = `<div class="card wiz-sum">${rows.map(([k, v, key]) => `<div class="wiz-row">
+          <span class="k">${k}</span><span class="v phrases">${v.split(' ').map((t) => `<span>${esc(t)}</span>`).join(' ')}</span>
+          ${key ? `<button type="button" class="btn small" data-wiz-go="${key}">変える</button>` : ''}</div>`).join('')}</div>
+        <div class="field" style="margin-top:16px"><label for="rname">ルールの名前（${RULE_NAME_MAX}文字まで）</label>
+          <input id="rname" class="input" value="${esc(d.name)}" maxlength="${RULE_NAME_MAX}" autocomplete="off">
+          ${d.named ? '' : '<span class="muted small" id="auto-note">内容から自動で付けました。変えてもかまいません。</span>'}</div>
+        <div id="msg"></div>
+        <button id="save" class="btn primary big">保存する</button>`;
+    }
+
+    app.innerHTML = `${header('マイルールを作る', back)}
+    <main class="wizard">
+      ${step.key === 'confirm' ? '' : `<div class="wiz-progress" aria-label="${d.step + 1}問目（全${total}問）">
+        ${steps.slice(0, -1).map((s, i) => `<span class="${i < d.step ? 'done' : i === d.step ? 'now' : ''}"></span>`).join('')}
+        <em>${d.step + 1} / ${total}</em></div>`}
+      <h2 class="wiz-q">${step.q}</h2>
+      ${step.help ? `<p class="muted wiz-help phrases">${step.help.map((t) => `<span>${t}</span>`).join('')}</p>` : ''}
+      ${body}
+      <div class="wiz-nav">
+        ${d.step > 0 ? '<button type="button" id="wiz-back" class="btn">‹ 前の質問</button>' : '<span></span>'}
+        ${step.key === 'confirm' ? '' : '<button type="button" id="wiz-next" class="btn">このまま次へ ›</button>'}
+      </div>
+    </main>`;
+
+    const go = (i) => { d.step = Math.max(0, Math.min(i, steps.length - 1)); viewRuleWizard(); window.scrollTo(0, 0); };
+    // 選んだら次の質問へ。「その他（数字を入力）」と、チップの「ptで決める／収支で決める」の切り替えは、その場に残る
+    let advance = false;
+    bindOpts(d, n, () => { if (advance) { advance = false; go(d.step + 1); } else { const y = window.scrollY; viewRuleWizard(); window.scrollTo(0, y); } });
+    $$('[data-opt]').forEach((b) => {
+      const orig = b.onclick;
+      b.onclick = () => { advance = b.dataset.i !== 'custom'; orig(); };
+    });
+    $$('[data-wiz-mode]').forEach((b) => b.onclick = () => {
+      const m = Number(b.dataset.wizMode);
+      if (m !== d.mode) {
+        Object.assign(d, clone(PRESETS.find((r) => r.id === RECOMMENDED[m])), { key: d.key, step: d.step, name: d.name, named: d.named });
+        delete d.desc;
+        d.chipUnit = d.chipUnit || 'pt';
+      }
+      go(d.step + 1);
+    });
+    $$('[data-wiz-go]').forEach((b) => b.onclick = () => go(steps.findIndex((s) => s.key === b.dataset.wizGo)));
+    const backBtn = $('#wiz-back');
+    if (backBtn) backBtn.onclick = () => go(d.step - 1);
+    const nextBtn = $('#wiz-next');
+    if (nextBtn) nextBtn.onclick = () => {
+      const inp = $('[data-custom]');
+      if (inp) {
+        const { min, max } = CUSTOM_RANGE[inp.dataset.custom];
+        const v = Number(inp.value);
+        if (inp.value === '' || !(v >= min && v <= max)) {
+          $(`[data-custom-msg="${inp.dataset.custom}"]`).classList.add('error');
+          inp.focus();
+          return;
+        }
+        inp.onchange();
+      }
+      go(d.step + 1);
+    };
+    const nameIn = $('#rname');
+    if (nameIn) nameIn.oninput = (e) => {
+      d.name = e.target.value;
+      d.named = true;
+      const note = $('#auto-note');
+      if (note) note.remove();
+    };
+    const saveBtn = $('#save');
+    if (saveBtn) saveBtn.onclick = () => {
+      const name = d.name.trim();
+      if (!name) { $('#msg').innerHTML = '<div class="notice">ルールの名前を入れてください</div>'; $('#rname').focus(); return; }
+      if (nameLength(name) > RULE_NAME_MAX) { $('#msg').innerHTML = `<div class="notice">名前は${RULE_NAME_MAX}文字までです</div>`; return; }
+      const rule = { id: uid(), mode: d.mode, name, start: d.start, ret: d.ret, uma: [...d.uma], tobiPt: d.tobiPt, chipPt: d.chipPt, chipUnit: d.chipUnit || 'pt', rate: d.rate };
+      db.myRules.push(rule);
+      if (fromNew && rule.mode === newState.mode) { pickRule(rule); newState.open = false; newState.showRule = true; }
+      save();
+      ruleDraft = null;
+      location.hash = back;
+    };
+  }
+
   // ---------- 友達に送る（QRコード・リンク） ----------
   // リンクはいつも公開している Web 版を開く（iPhone アプリの中の住所は外から開けないため）
   const SHARE_BASE = 'https://fuhi0521-bot.github.io/mahjong-score/';
@@ -1714,7 +1872,7 @@
     if (parts[0] === 'new') return viewNew();
     if (parts[0] === 'players' && parts[1]) return viewPlayerEdit(parts[1]);
     if (parts[0] === 'players') return viewPlayers();
-    if (parts[0] === 'rules' && parts[1] === 'new') return viewRuleEdit('new', parts[2]);
+    if (parts[0] === 'rules' && parts[1] === 'new') return parts[2] ? viewRuleEdit('new', parts[2]) : viewRuleWizard();
     if (parts[0] === 'rules' && parts[1]) return viewRuleEdit(parts[1]);
     if (parts[0] === 'rules') return viewRules();
     if (parts[0] === 'session' && parts[2] === 'game') return viewGame(parts[1], parts[3]);
