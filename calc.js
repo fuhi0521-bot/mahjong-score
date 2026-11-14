@@ -65,8 +65,10 @@
   }
   function tobiLabel(pt) { return pt ? `${pt}pt` : 'なし'; }
   function chipLabel(pt, unit) { return !pt ? 'なし' : unit === 'settle' ? `1枚 収支${pt}` : `1枚${pt}pt`; }
-  // チップを「収支で決める」か（chipUnit: 'settle'）。レートがあるときだけ有効
-  function chipBySettle(rule) { return rule.chipUnit === 'settle' && rule.rate > 0; }
+  // チップを「収支で決める」か（chipUnit: 'settle'）。レートなしでも使える（2026-11-11 ユーザー指示）
+  function chipBySettle(rule) { return rule.chipUnit === 'settle'; }
+  // 収支を出す対局か：レートがある、またはチップを収支で決めている（レートなしなら収支はチップの分だけ）
+  function hasSettle(rule) { return rule.rate > 0 || (chipBySettle(rule) && rule.chipPt > 0); }
   // レートは収支ptの倍率（金額は扱わない）。1pt＝1,000点あたりの数で、テンピン（1,000点100）なら ×100
   function rateLabel(rate) {
     // 倍率（×100 など）は画面に出さない。「その他」で入れた数字は「その他（7.5）」
@@ -148,7 +150,8 @@
       row.total10 = row.pt10 + (bySettle ? 0 : Math.round(row.chips * rule.chipPt * 10));
       // レートなしの対局は ×1 として扱う。端数（×7.5 などのとき）はプラスもマイナスも同じく四捨五入する
       // チップを収支で決めているときは、チップの分はレートをかけずに収支へそのまま足す
-      const raw = row.total10 * (rule.rate || 1);
+      // レートなしでチップを収支で決めているときは、収支はチップの分だけ（合計ptは収支に入れない）
+      const raw = bySettle && !(rule.rate > 0) ? 0 : row.total10 * (rule.rate || 1);
       row.chipSettle10 = bySettle ? Math.round(row.chips * rule.chipPt * 10) : 0; // 収支のうち「収支で決める」チップの分
       row.settle10 = Math.sign(raw) * Math.round(Math.abs(raw)) + row.chipSettle10;
     }
@@ -183,7 +186,7 @@
         const st = get(row.pid);
         st.chip10 += row.total10 - row.pt10;
         st.settle10 += row.settle10;
-        if (s.rule.rate > 0) st.hasSettle = true;
+        if (hasSettle(s.rule)) st.hasSettle = true;
       }
     }
     for (const st of Object.values(stats)) {
@@ -402,7 +405,7 @@
     encodeShare, decodeShare, packShare, unpackShare,
     SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, okaPt10, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
-    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary,
+    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, hasSettle, rateLabel, ruleSummary,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = MJ;
   else root.MJ = MJ;

@@ -695,3 +695,7 @@ input, select, textarea { font-size: 16px; }
 .wiz-row + .wiz-row { border-top: 1px solid var(--line); }
 .wiz-row .k { font-size: 12px; color: var(--muted); }
 .wiz-row .v { font-size: 15px; font-weight: 600; min-width: 0; }
+
+/* プレイヤーを記録ごと削除するときの注意 */
+.del-note { font-size: 13px; margin: 8px 0 0; text-align: center; }
+.session-item .s-meta { font-size: 13px; line-height: 1.4; }

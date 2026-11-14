@@ -2,7 +2,7 @@
 (function () {
   const { SEAT_NAMES, NAME_MAX, PRESETS, OPTIONS, expectedTotal, calcGame, summarizeSession,
     formatPt, formatSettle, formatScore, formatPct, nameLength, playerStats, handPoints, handInvalid, BASES,
-    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, rateLabel, ruleSummary, packShare, unpackShare } = MJ;
+    baseLabel, umaLabel, tobiLabel, chipLabel, chipBySettle, hasSettle, rateLabel, ruleSummary, packShare, unpackShare } = MJ;
 
   // ズーム禁止：ブラウザの Safari は viewport の user-scalable=no を無視するため、2本指の拡大も止める
   ['gesturestart', 'gesturechange'].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
@@ -196,13 +196,12 @@
       else if (k === 'chipSet') { target.chipUnit = 'settle'; target.chipPt = OPTIONS.chipSet[i]; }
       else if (k === 'chipPt') { target.chipUnit = 'pt'; target.chipPt = OPTIONS.chipPt[i]; }
       else target[k] = OPTIONS[k][i];
-      fixChipUnit(target);
       rerender();
     });
     // チップの「ptで決める／収支で決める」。切り替えたら、よく使う数（2pt・収支50）から始める
     $$('[data-chipunit]').forEach((b) => b.onclick = () => {
       const u = b.dataset.chipunit;
-      if (b.disabled || (target.chipUnit || 'pt') === u) return;
+      if ((target.chipUnit || 'pt') === u) return;
       customOpen.delete('chipPt'); customOpen.delete('chipSet');
       target.chipUnit = u;
       target.chipPt = u === 'settle' ? 50 : 2;
@@ -220,7 +219,7 @@
           target[k === 'chipSet' ? 'chipPt' : k] = v;
         }
       };
-      inp.onchange = () => { if (valid() !== null) { fixChipUnit(target); rerender(); } };
+      inp.onchange = () => { if (valid() !== null) rerender(); };
     });
   }
 
@@ -229,7 +228,7 @@
     base: ['持ち点・返し', '「持ち点」は最初に配られる点数。「返し」は順位点を計算するときの基準になる点数です。返しが持ち点より多いと、その差（例: 5,000点×4人＝20pt）がトップの人のボーナス「オカ」になります。'],
     uma: ['ウマ', '順位に応じてやりとりするptです。例えば「10-30」なら 1位+30、2位+10、3位−10、4位−30pt。数字が大きいほど順位の差がはっきり出ます。'],
     tobiPt: ['飛び賞', '誰かの点数が0点未満（飛び）になったとき、飛ばした人が飛んだ人からもらうptです。'],
-    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。「ptで決める」は1枚あたりのptを合計に足し、レートもかかります。「収支で決める」は1枚あたりの数を収支にそのまま足し、レートはかけません（レートを決めたときだけ選べます）。使わないなら「なし」。'],
+    chipPt: ['チップ', '一発や裏ドラなどでやりとりするチップです。「ptで決める」は1枚あたりのptを合計に足し、レートもかかります。「収支で決める」は1枚あたりの数を収支にそのまま足し、レートはかけません（レートなしなら、収支はチップの分だけです）。使わないなら「なし」。'],
     rate: ['レート', '合計ptにかける倍率で、1pt（1,000点）あたりの数です。テンサンは×30、テンゴは×50、テンピンは×100、テンリャンピンは×200。例えばテンピンなら、合計+250.0ptの収支は+25,000ptです。なしなら収支は出しません。'],
   };
   // ラベルをタップすると説明が開く
@@ -249,21 +248,13 @@
     const unit = v.chipUnit === 'settle' ? 'settle' : 'pt';
     const noRate = !(v.rate > 0);
     return `<div class="seg chip-seg"><button type="button" data-chipunit="pt" class="${unit === 'pt' ? 'on' : ''}">ptで決める</button>
-      <button type="button" data-chipunit="settle" class="${unit === 'settle' ? 'on' : ''}" ${noRate ? 'disabled' : ''}>収支で決める</button></div>
+      <button type="button" data-chipunit="settle" class="${unit === 'settle' ? 'on' : ''}">収支で決める</button></div>
       <p class="muted chip-note">${(unit === 'pt'
-        ? ['1枚あたりのptを合計に足します。', 'レートもかかります。', ...(noRate ? ['「収支で決める」は、', 'レートを決めると選べます。'] : [])]
-        : ['1枚あたりの数を収支に', 'そのまま足します。', 'レートはかけません。']).map((t) => `<span>${t}</span>`).join('')}</p>
+        ? ['1枚あたりのptを合計に足します。', ...(noRate ? [] : ['レートもかかります。'])]
+        : ['1枚あたりの数を収支に', 'そのまま足します。', ...(noRate ? ['レートなしなので、', '収支はチップの分だけです。'] : ['レートはかけません。'])]).map((t) => `<span>${t}</span>`).join('')}</p>
       ${unit === 'pt'
         ? optButtons('chipPt', OPTIONS.chipPt, v.chipPt, (x) => chipLabel(x, 'pt'), null, CHIP_CUSTOM)
         : optButtons('chipSet', OPTIONS.chipSet, v.chipPt, (x) => chipLabel(x, 'settle'), null, CHIPSET_CUSTOM)}`;
-  }
-  // レートを「なし」にしたら、「収支で決める」チップは使えないので「ptで決める・なし」に戻す
-  function fixChipUnit(target) {
-    if (target.chipUnit === 'settle' && !(target.rate > 0)) {
-      target.chipUnit = 'pt';
-      target.chipPt = 0;
-      customOpen.delete('chipSet');
-    }
   }
   // おすすめのルールの「内容を読み込む」部品。選んでいる状態（緑）にはしない＝どのルールを編集中か紛らわしくしない
   let presetLoadedMsg = '';
@@ -300,8 +291,8 @@
   function sessionResults(s) {
     const rows = summarizeSession(s).filter((r) => r.games > 0);
     if (!rows.length) return '<div class="s-results empty-results">まだ半荘の記録がありません</div>';
-    const useSettle = s.rule.rate > 0;
-    rows.sort((a, b) => b.total10 - a.total10);
+    const useSettle = hasSettle(s.rule);
+    rows.sort((a, b) => (useSettle ? b.settle10 - a.settle10 : 0) || b.total10 - a.total10);
     return `<div class="s-scroll"><div class="s-results" style="--per:${s.mode}">${rows.map((r) => {
       const v = useSettle ? r.settle10 : r.total10;
       return `<div class="s-res">${avatar(getPlayer(r.pid), 26)}<span class="s-name">${esc(playerName(r.pid))}</span><span class="s-val ${ptClass(v)}">${useSettle ? formatSettle(v, false) : formatPt(v)}</span></div>`;
@@ -319,7 +310,7 @@
       ${sessions.length ? `<ul class="list">${sessions.map((s) => `
         <li><a class="session-item" href="#/session/${s.id}">
           <div class="row-main"><span class="s-title line1">${esc(s.name || fmtDate(s.date))}</span><span class="sub" style="margin-left:auto;flex-shrink:0">${s.games.length}半荘</span></div>
-          <div class="line1 sub">${s.name ? `${fmtDateShort(s.date)}・` : ''}${s.mode === 4 ? '四麻' : '三麻'}・${s.playerIds.length}人・${esc(s.ruleName || 'カスタム')}</div>
+          <div class="sub s-meta phrases">${s.name ? `<span>${fmtDateShort(s.date)}・</span>` : ''}<span>${s.mode === 4 ? '四麻' : '三麻'}・${s.playerIds.length}人・</span><span>${esc(s.ruleName || 'カスタム')}</span></div>
           ${sessionResults(s)}
         </a></li>`).join('')}</ul>`
         : '<p class="empty">まだ記録がありません</p>'}
@@ -638,7 +629,8 @@
     if (!s) return (location.hash = '#/');
     const n = s.mode;
     const summary = summarizeSession(s);
-    const showSettle = s.rule.rate > 0;
+    const showSettle = hasSettle(s.rule);
+    const hasRate = s.rule.rate > 0;
     const bySettle = chipBySettle(s.rule);
     const useChips = s.rule.chipPt > 0 && (bySettle || s.rule.chipUnit !== 'settle');
     const chipCount = (c) => `${c > 0 ? '+' : c < 0 ? '−' : '±'}${Math.abs(c)}枚`;
@@ -681,7 +673,7 @@
         <tfoot>${footRows}</tfoot></table></div></div>
       <button type="button" id="foot-toggle" class="btn small foot-toggle">${toggleLabel()}</button>
       <div class="legend"><span class="tobi-sample"></span>＝飛び</div>
-      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${showSettle ? '収支はレート込みのptです。' : ''}${useChips ? (bySettle ? 'チップは枚数で、収支にだけ入ります。' : '合計は半荘計＋チップ。') : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
+      <div class="muted" style="margin-top:4px">上段がpt、下段が素点です。行をタップすると修正・削除できます。${hasRate ? '収支はレート込みのptです。' : showSettle ? '収支はチップの分だけです。' : ''}${useChips ? (bySettle ? 'チップは枚数で、収支にだけ入ります。' : '合計は半荘計＋チップ。') : ''}内訳は${details.map(([l]) => l).join('・')}、順位は1位〜${n}位の回数です<span id="scroll-hint" hidden>。表は横にスクロールできます</span></div>`;
 
     app.innerHTML = `${header(s.name || fmtDate(s.date), '#/')}
     <main>
@@ -690,7 +682,7 @@
       <div class="card">${s.games.length ? gameTable : '<p class="empty" style="padding:8px 0">まだ半荘の記録がありません</p>'}</div>
 
       <h2>今日の結果</h2>
-      ${showSettle ? `<p class="muted rate-note">レート：${rateName(s.rule.rate)}</p>` : ''}
+      ${hasRate ? `<p class="muted rate-note">レート：${rateName(s.rule.rate)}</p>` : ''}
       <div class="card">
         ${ranking.length ? ranking.map((r, i) => `<div class="person-row result-line">
           <span class="rk">${i + 1}</span>${avatar(getPlayer(r.pid), 36)}
@@ -807,7 +799,7 @@
   function viewChips(id) {
     const s = findSession(id);
     const bySettle = s && chipBySettle(s.rule);
-    if (!s || !(s.rule.chipPt > 0) || (s.rule.chipUnit === 'settle' && !bySettle)) return (location.hash = id ? `#/session/${id}` : '#/');
+    if (!s || !(s.rule.chipPt > 0)) return (location.hash = id ? `#/session/${id}` : '#/');
     const summary = summarizeSession(s);
     const chipSum = summary.reduce((a, r) => a + r.chips, 0);
 
@@ -1182,7 +1174,7 @@
         ${tile('総合pt', formatPt(st.total10), ptClass(st.total10))}
         ${tile('半荘数', `${st.games}`)}
         ${tile('平均順位', `${st.avgRank.toFixed(2)}位`)}
-        ${st.hasSettle ? tile('収支（レート込み）', formatSettle(st.settle10), ptClass(st.settle10)) : tile('チップ', formatPt(st.chip10), ptClass(st.chip10))}
+        ${st.hasSettle ? tile('収支', formatSettle(st.settle10), ptClass(st.settle10)) : tile('チップ', formatPt(st.chip10), ptClass(st.chip10))}
       </div>
 
       <h2>順位率</h2>
@@ -1265,6 +1257,7 @@
     }
     const d = playerDraft;
     const used = !isNew && usedPlayerIds().has(pid);
+    const usedCount = used ? db.sessions.filter((x) => x.playerIds.includes(pid)).length : 0;
 
     const backTo = isNew && playerReturn ? playerReturn.back : '#/players';
     app.innerHTML = `${header(isNew ? 'プレイヤーを追加' : 'プレイヤーを編集', backTo)}
@@ -1288,7 +1281,8 @@
       <div id="msg"></div>
       <button id="save" class="btn primary big">${isNew ? '追加する' : '保存する'}</button>
       ${isNew ? '' : used
-        ? '<p class="muted" style="text-align:center">対局記録があるため削除できません</p>'
+        ? `<button id="del" class="btn danger" style="width:100%;margin-top:12px">このプレイヤーを記録ごと削除</button>
+          <p class="muted del-note phrases"><span>${esc(p.name)}さんが入っている</span><span>対局（${usedCount}件）も、</span><span>すべて削除されます。</span><span>元に戻せません。</span></p>`
         : '<button id="del" class="btn danger" style="width:100%;margin-top:12px">このプレイヤーを削除</button>'}
     </main>`;
 
@@ -1327,10 +1321,19 @@
       playerReturn = null;
       location.hash = ret ? ret.back : '#/players';
     };
-    if (!isNew && !used) {
+    if (!isNew) {
       $('#del').onclick = () => {
-        if (!confirm(`「${p.name}」を削除しますか？`)) return;
+        if (!used) {
+          if (!confirm(`「${p.name}」を削除しますか？`)) return;
+        } else {
+          // 記録ごと削除：元に戻せないので、消える対局の数を出して2回確かめる
+          if (!confirm(`「${p.name}」を削除します。\n\n${p.name}さんが入っている対局${usedCount}件も、すべて削除されます。いっしょに打った人の成績からも消えます。\n\n元に戻せません。よろしいですか？`)) return;
+          if (!confirm(`本当に削除しますか？\n（プレイヤー「${p.name}」と対局${usedCount}件）`)) return;
+          db.sessions = db.sessions.filter((x) => !x.playerIds.includes(p.id));
+        }
         db.players = db.players.filter((x) => x.id !== p.id);
+        for (const m of Object.keys(db.lastMembers)) db.lastMembers[m] = (db.lastMembers[m] || []).filter((id) => id !== p.id);
+        newState.selected = newState.selected.filter((id) => id !== p.id);
         save();
         playerDraft = null;
         location.hash = '#/players';
@@ -1757,7 +1760,7 @@
       chips: Object.fromEntries(keys.map((k, i) => [k, data.chips[i]])),
     };
     const summary = summarizeSession(preview);
-    const showSettle = data.rule.rate > 0;
+    const showSettle = hasSettle(data.rule);
     const ranking = summary.filter((r) => r.games > 0 || r.chips !== 0).sort((a, b) => b.total10 - a.total10);
     const incoming = (i) => ({ name: data.players[i].name, icon: ICON_KEYS.includes(data.players[i].icon) ? data.players[i].icon : null });
     const title = data.name || fmtDate(data.date);
